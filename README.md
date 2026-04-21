@@ -9,6 +9,7 @@ Built by [@krumjahn](https://www.threads.com/@krumjahn) — running live on my a
 - Logs into your Threads account (via browser cookies)
 - Pulls your real Insights — views, likes, replies per post
 - Identifies your personal winning patterns (not generic advice)
+- Drafts posts using your patterns + algorithm red-line check + AI-tone detection
 - Scores new post drafts before you publish
 - Runs a bi-weekly cron to keep your performance database updated automatically
 
@@ -35,7 +36,7 @@ Hermes will walk you through cookie export and first Insights scrape (~5 min).
 ## How it works
 
 1. **Setup**: Export your Threads cookies once → Hermes stores them → logs in via browser automation
-2. **Draft**: Describe your post idea → Hermes drafts using your winning patterns → you approve
+2. **Draft**: Describe your post idea → Hermes drafts using your winning patterns → runs algorithm + AI-tone checks → you approve
 3. **Track**: Bi-weekly cron scrapes Insights → updates `winning-formats.md` → sends you a report
 4. **Compound**: Every 2 weeks your patterns get sharper. Posts improve automatically.
 
@@ -46,6 +47,25 @@ Post → Track performance → Update patterns → Better drafts → Better post
 ```
 
 Most people post by feel. This skill makes you post by data — your data, not generic best practices.
+
+## What's new in v2.0
+
+- **Algorithm red-line check**: Scans every draft against Meta's 12 hard suppression rules before posting
+- **Signal weighting**: Optimizes for DM forwardability (3–5x heavier than likes per Mosseri 2025) and deep comments
+- **AI-tone detection**: 10 sentence-level and 5 structure-level AI tells — flags and fixes before you post
+- **Share motive design**: Each draft is evaluated for DM forwardability, repostability, identity signal, and utility
+- **Multi-part Threads support**: Chain multiple 500-char parts into one seamless long post in the feed
+- Algorithm knowledge base adapted from [AK-Threads-Booster](https://github.com/akseolabs-seo/AK-Threads-booster)
+
+## Hook Framework
+
+| Hook Type | When to use | Avg. multiplier |
+|-----------|-------------|-----------------|
+| Anti-Demo | You hit a specific failure → found the fix | 1.5x |
+| Secret Knowledge | Something most people don't know + steps | 1.4x |
+| Truth/Comparison | Same task, two tools, clear winner | 1.2x |
+| Builder Journey | Workflow switch with concrete before/after | 1.1x |
+| Link Drop | Just a link | 0.2x — avoid |
 
 ## Files
 

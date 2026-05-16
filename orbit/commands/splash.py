@@ -1,119 +1,107 @@
 from __future__ import annotations
 import time
 import math
+import sys
 from rich.console import Console
+from rich.live import Live
 from rich.text import Text
+from rich.align import Align
 
 console = Console()
 
-LOGO = [
-    "   ██████╗ ██████╗ ██████╗ ██╗████████╗",
-    "  ██╔═══██╗██╔══██╗██╔══██╗██║╚══██╔══╝",
-    "  ██║   ██║██████╔╝██████╔╝██║   ██║   ",
-    "  ██║   ██║██╔══██╗██╔══██╗██║   ██║   ",
-    "  ╚██████╔╝██║  ██║██████╔╝██║   ██║   ",
-    "   ╚═════╝ ╚═╝  ╚═╝╚═════╝ ╚═╝   ╚═╝   ",
-]
+LOGO = """\
+  ██████╗ ██████╗ ██████╗ ██╗████████╗
+ ██╔═══██╗██╔══██╗██╔══██╗██║╚══██╔══╝
+ ██║   ██║██████╔╝██████╔╝██║   ██║
+ ██║   ██║██╔══██╗██╔══██╗██║   ██║
+ ╚██████╔╝██║  ██║██████╔╝██║   ██║
+  ╚═════╝ ╚═╝  ╚═╝╚═════╝ ╚═╝   ╚═╝  """
 
 SUBTITLE = "content flywheel  ·  create · publish · analyze · grow"
 
-# Orbital ring frames — a dot travelling around an ellipse
-_RING = "·"
-_PLANET = "●"
-_ORBIT_WIDTH = 42
-_ORBIT_HEIGHT = 5
+_COLORS = ["#FF6B35", "#FF8450", "#FFA070", "#FFB347", "#FFD166", "#FFB347", "#FFA070", "#FF8450"]
 
-def _orbit_frame(t: float) -> list[str]:
-    """Render one frame of an orbiting dot around an ellipse."""
-    cx = _ORBIT_WIDTH // 2
-    cy = _ORBIT_HEIGHT // 2
-    rx = cx - 1
-    ry = cy - 1
+# Orbit ring: 36 positions around an ellipse, rendered as a single line
+_STEPS = 36
+_RX = 18   # horizontal radius (chars)
+_RY = 3    # vertical radius (lines)
+_W = _RX * 2 + 3
+_H = _RY * 2 + 1
 
-    # Build empty grid
-    grid = [[" "] * _ORBIT_WIDTH for _ in range(_ORBIT_HEIGHT)]
 
-    # Draw ellipse outline
-    for step in range(360):
-        angle = math.radians(step)
-        x = int(cx + rx * math.cos(angle))
-        y = int(cy + ry * math.sin(angle) * 0.5)
-        if 0 <= x < _ORBIT_WIDTH and 0 <= y < _ORBIT_HEIGHT:
+def _render_frame(step: int) -> Text:
+    color = _COLORS[step % len(_COLORS)]
+
+    # Build logo
+    out = Text()
+    for line in LOGO.splitlines():
+        out.append(line + "\n", style=f"bold {color}")
+    out.append("\n")
+
+    # Build orbit grid
+    cx = _W // 2
+    cy = _H // 2
+    grid = [[" "] * _W for _ in range(_H)]
+
+    # Draw ellipse
+    for i in range(360):
+        a = math.radians(i)
+        x = int(round(cx + _RX * math.cos(a)))
+        y = int(round(cy + _RY * math.sin(a)))
+        if 0 <= x < _W and 0 <= y < _H:
             grid[y][x] = "·"
-
-    # Draw orbiting planet
-    angle = math.radians(t * 4 % 360)
-    px = int(cx + rx * math.cos(angle))
-    py = int(cy + ry * math.sin(angle) * 0.5)
-    if 0 <= px < _ORBIT_WIDTH and 0 <= py < _ORBIT_HEIGHT:
-        grid[py][px] = "●"
 
     # Center star
     grid[cy][cx] = "✦"
 
-    return ["".join(row) for row in grid]
+    # Moving planet
+    planet_angle = math.radians((step / _STEPS) * 360)
+    px = int(round(cx + _RX * math.cos(planet_angle)))
+    py = int(round(cy + _RY * math.sin(planet_angle)))
+    if 0 <= px < _W and 0 <= py < _H:
+        grid[py][px] = "●"
 
+    for row in grid:
+        row_str = "".join(row)
+        # color each character separately
+        for ch in row_str:
+            if ch == "●":
+                out.append(ch, style=f"bold {color}")
+            elif ch == "✦":
+                out.append(ch, style="bold white")
+            elif ch == "·":
+                out.append(ch, style="dim white")
+            else:
+                out.append(ch)
+        out.append("\n")
 
-# Gradient colors for logo animation
-_COLORS = [
-    "#FF6B35", "#FF8C42", "#FFA94D",
-    "#FFB347", "#FFC05C", "#FFD166",
-]
+    out.append("\n")
+    out.append(f"  {SUBTITLE}", style="dim")
+    return out
 
 
 def show_splash() -> None:
-    """Display animated orbit splash screen, then clear and show static version."""
-    import sys
     if not sys.stdout.isatty():
         _show_static()
         return
 
-    frames = 60
     console.print()
-
-    # Animate for ~1.5 seconds
-    with console:
-        for i in range(frames):
-            t = i / frames * 360
-
-            lines: list[str] = []
-
-            # Logo with cycling color
-            color = _COLORS[i % len(_COLORS)]
-            for line in LOGO:
-                lines.append(f"[bold {color}]{line}[/]")
-
-            lines.append("")
-
-            # Orbit animation
-            for ring_line in _orbit_frame(t):
-                # Color the planet brighter
-                colored = ring_line.replace("●", f"[bold {color}]●[/]")
-                colored = colored.replace("✦", f"[bold white]✦[/]")
-                colored = colored.replace("·", "[dim white]·[/]")
-                lines.append("  " + colored)
-
-            lines.append("")
-            lines.append(f"  [dim]{SUBTITLE}[/dim]")
-
-            # Move cursor up to overwrite previous frame (after first frame)
-            if i > 0:
-                total_lines = len(LOGO) + 1 + _ORBIT_HEIGHT + 2
-                console.print(f"\033[{total_lines}A", end="")
-
-            for line in lines:
-                console.print(line)
-
-            time.sleep(0.025)
+    with Live(
+        _render_frame(0),
+        console=console,
+        refresh_per_second=30,
+        transient=False,
+    ) as live:
+        for step in range(_STEPS * 2):  # two full orbits
+            live.update(_render_frame(step))
+            time.sleep(0.05)
 
     console.print()
 
 
 def _show_static() -> None:
-    """Non-TTY fallback — plain logo, no animation."""
     console.print()
-    for line in LOGO:
-        console.print(f"[bold #FF6B35]{line}[/]")
+    console.print(LOGO, style="bold #FF6B35")
     console.print()
-    console.print(f"  [dim]{SUBTITLE}[/dim]")
+    console.print(f"  {SUBTITLE}", style="dim")
     console.print()

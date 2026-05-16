@@ -96,7 +96,7 @@ def _setup_linkedin(cfg: Config) -> None:
         "response_type": "code",
         "client_id": client_id,
         "redirect_uri": _REDIRECT_URI,
-        "scope": "w_member_social",
+        "scope": "openid profile email w_member_social",
     })
     auth_url = f"https://www.linkedin.com/oauth/v2/authorization?{params}"
 
@@ -174,16 +174,16 @@ def _setup_linkedin(cfg: Config) -> None:
         console.print(f"  [red]✗ Token exchange failed: {e}[/red]")
         return
 
-    # Fetch author URN
+    # Fetch author URN via OpenID userinfo endpoint
     console.print("  Fetching your profile URN...")
     try:
         me = httpx.get(
-            "https://api.linkedin.com/v2/me",
+            "https://api.linkedin.com/v2/userinfo",
             headers={"Authorization": f"Bearer {token}"},
             timeout=15,
         )
         me.raise_for_status()
-        person_id = me.json().get("id", "")
+        person_id = me.json().get("sub", "")
         author_urn = f"urn:li:person:{person_id}"
     except Exception as e:
         console.print(f"  [yellow]⚠ Could not fetch profile URN: {e}[/yellow]")

@@ -101,9 +101,13 @@ def _sync_linkedin(cfg: Config, db: DB, ps: PatternStore, now: str) -> None:
         for post_row in all_posts:
             m = metrics_map.get(post_row["external_id"])
             if m:
-                db.conn["metrics"].insert(
-                    {**m, "post_id": post_row["id"], "platform": "linkedin", "pulled_at": now}
-                )
+                already_pulled = list(db.conn["metrics"].rows_where(
+                    "post_id = ? AND pulled_at = ?", [post_row["id"], now]
+                ))
+                if not already_pulled:
+                    db.conn["metrics"].insert(
+                        {**m, "post_id": post_row["id"], "platform": "linkedin", "pulled_at": now}
+                    )
 
     ps.recalculate("linkedin", db)
 
@@ -147,12 +151,18 @@ def _sync_youtube(cfg: Config, db: DB, ps: PatternStore, now: str) -> None:
             )
 
     all_posts = list(db.conn["posts"].rows_where("platform = ?", ["youtube"]))
-    metrics_map = client.extract_metrics(videos)
+    # Build metrics from freshly-fetched videos; existing posts not in current page won't update
+    metrics_map = {v["external_id"]: v for v in videos}
     for post_row in all_posts:
-        m = metrics_map.get(post_row["external_id"])
-        if m:
-            db.conn["metrics"].insert(
-                {**m, "post_id": post_row["id"], "platform": "youtube", "pulled_at": now}
-            )
+        v = metrics_map.get(post_row["external_id"])
+        if v:
+            m = client.extract_metrics([v])[v["external_id"]]
+            already_pulled = list(db.conn["metrics"].rows_where(
+                "post_id = ? AND pulled_at = ?", [post_row["id"], now]
+            ))
+            if not already_pulled:
+                db.conn["metrics"].insert(
+                    {**m, "post_id": post_row["id"], "platform": "youtube", "pulled_at": now}
+                )
 
     ps.recalculate("youtube", db)

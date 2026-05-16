@@ -70,7 +70,7 @@ def _setup_platform(cfg: Config, platform: str) -> None:
     elif platform in ("threads", "facebook"):
         console.print("Threads and Facebook use the Meta Graph API.")
         console.print("Create an app at: https://developers.facebook.com/apps")
-        token = Prompt.ask("  Access Token")
+        token = Prompt.ask("  Access Token", password=True)
         user_id = Prompt.ask("  User/Page ID")
         cfg.set(f"{platform}.access_token", token)
         cfg.set(f"{platform}.user_id", user_id)

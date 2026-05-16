@@ -1,4 +1,5 @@
 from __future__ import annotations
+import copy
 import json
 import statistics
 from collections import defaultdict
@@ -27,13 +28,13 @@ class PatternStore:
     def load(self, platform: str) -> dict[str, Any]:
         path = self.patterns_dir / f"{platform}.json"
         if not path.exists():
-            return {"platform": platform, "updated_at": None, **DEFAULTS}
+            return {"platform": platform, "updated_at": None, **copy.deepcopy(DEFAULTS)}
         return json.loads(path.read_text())
 
     def save(self, platform: str, data: dict[str, Any]) -> None:
-        data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        payload = {**data, "updated_at": datetime.now(timezone.utc).isoformat()}
         path = self.patterns_dir / f"{platform}.json"
-        path.write_text(json.dumps(data, indent=2))
+        path.write_text(json.dumps(payload, indent=2))
 
     def recalculate(self, platform: str, db: Any) -> dict[str, Any]:
         rows = db.conn.execute("""

@@ -20,3 +20,14 @@ def test_config_persists(orbit_home):
     cfg.set("youtube.api_key", "yt-key")
     cfg2 = Config(orbit_home)
     assert cfg2.get("youtube.api_key") == "yt-key"
+
+def test_get_non_dict_intermediate_returns_none(orbit_home):
+    cfg = Config(orbit_home)
+    cfg.set("a", 42)
+    assert cfg.get("a.b") is None
+
+def test_set_non_dict_intermediate_raises(orbit_home):
+    cfg = Config(orbit_home)
+    cfg.set("a", 42)
+    with pytest.raises(ValueError, match="non-dict"):
+        cfg.set("a.b", 1)

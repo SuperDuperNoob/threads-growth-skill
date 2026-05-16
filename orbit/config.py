@@ -10,6 +10,7 @@ class Config:
         self._path = self.home / "config.json"
         if not self._path.exists():
             self._path.write_text("{}")
+            self._path.chmod(0o600)
         self._data = json.loads(self._path.read_text())
 
     def get(self, key: str) -> Any:
@@ -35,3 +36,4 @@ class Config:
                 node = child
         node[parts[-1]] = value
         self._path.write_text(json.dumps(self._data, indent=2))
+        self._path.chmod(0o600)

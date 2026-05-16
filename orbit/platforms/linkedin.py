@@ -45,18 +45,21 @@ class LinkedInClient:
         return posts
 
     def get_metrics(self, post_urns: list[str]) -> dict[str, dict[str, Any]]:
+        # Uses the personal shareStatistics endpoint (q=shares) which works for
+        # urn:li:person: authors. The organizationalEntityShareStatistics endpoint
+        # requires org admin scope and returns empty for personal accounts.
         urns_param = ",".join(post_urns)
         resp = self._http.get(
-            f"{BASE_URL}/organizationalEntityShareStatistics",
+            f"{BASE_URL}/shareStatistics",
             params={
-                "q": "organizationalEntity",
+                "q": "shares",
                 "shares": f"List({urns_param})",
             },
         )
         resp.raise_for_status()
         result: dict[str, dict[str, Any]] = {}
         for el in resp.json().get("elements", []):
-            urn = el.get("share") or el.get("organizationalEntity", "")
+            urn = el.get("share", "")
             stats = el.get("totalShareStatistics", {})
             result[urn] = {
                 "views": stats.get("impressionCount", 0),

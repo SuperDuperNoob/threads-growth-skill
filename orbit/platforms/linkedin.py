@@ -56,7 +56,7 @@ class LinkedInClient:
         resp.raise_for_status()
         result: dict[str, dict[str, Any]] = {}
         for el in resp.json().get("elements", []):
-            urn = el["organizationalEntity"]
+            urn = el.get("share") or el.get("organizationalEntity", "")
             stats = el.get("totalShareStatistics", {})
             result[urn] = {
                 "views": stats.get("impressionCount", 0),

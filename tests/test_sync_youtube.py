@@ -10,6 +10,10 @@ def test_client_requires_api_key():
     with pytest.raises(ValueError):
         YouTubeClient(api_key=None, channel_id="UC123")
 
+def test_client_requires_channel_id():
+    with pytest.raises(ValueError):
+        YouTubeClient(api_key="test-key", channel_id=None)
+
 def test_get_videos_returns_list(client):
     mock_search = {
         "items": [{"id": {"videoId": "vid123"}}]

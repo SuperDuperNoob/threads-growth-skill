@@ -9,15 +9,19 @@ class YouTubeClient:
     def __init__(self, api_key: str | None, channel_id: str) -> None:
         if not api_key:
             raise ValueError("YouTube api_key is required")
+        if not channel_id:
+            raise ValueError("YouTube channel_id is required")
         self._key = api_key
         self.channel_id = channel_id
-        self._http = httpx.Client(timeout=30)
+        self._http = httpx.Client(
+            headers={"X-Goog-Api-Key": api_key},
+            timeout=30,
+        )
 
     def get_videos(self, max_results: int = 50) -> list[dict[str, Any]]:
         search_resp = self._http.get(
             f"{BASE_URL}/search",
             params={
-                "key": self._key,
                 "channelId": self.channel_id,
                 "part": "id",
                 "order": "date",
@@ -36,7 +40,6 @@ class YouTubeClient:
         details_resp = self._http.get(
             f"{BASE_URL}/videos",
             params={
-                "key": self._key,
                 "id": ",".join(video_ids),
                 "part": "snippet,statistics",
             },

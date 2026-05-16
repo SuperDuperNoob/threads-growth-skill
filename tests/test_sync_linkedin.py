@@ -39,7 +39,8 @@ def test_get_metrics_returns_dict(client):
     mock_response = {
         "elements": [
             {
-                "organizationalEntity": "urn:li:share:123",
+                "share": "urn:li:share:123",
+                "organizationalEntity": "urn:li:person:abc",
                 "totalShareStatistics": {
                     "impressionCount": 1500,
                     "likeCount": 42,

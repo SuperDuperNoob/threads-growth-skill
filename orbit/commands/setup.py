@@ -230,7 +230,9 @@ def _setup_twitter(cfg: Config) -> None:
     # Auto-detect cookies file in Downloads
     default_path = ""
     downloads = Path.home() / "Downloads"
-    candidates = sorted(downloads.glob("*cookies*.txt"), key=lambda p: p.stat().st_mtime, reverse=True)
+    candidates = []
+    if downloads.is_dir():
+        candidates = sorted(downloads.glob("*cookies*.txt"), key=lambda p: p.stat().st_mtime, reverse=True)
     if candidates:
         default_path = str(candidates[0])
         console.print(f"  [dim]Found: {default_path}[/dim]")
@@ -240,6 +242,21 @@ def _setup_twitter(cfg: Config) -> None:
 
     if not cookies_file.exists():
         console.print(f"  [red]✗ File not found: {cookies_file}[/red]")
+        return
+
+    # Validate required cookies are present
+    required = {"ct0", "auth_token"}
+    found = set()
+    for line in cookies_file.read_text().splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        parts = line.strip().split("\t")
+        if len(parts) >= 7:
+            found.add(parts[5])
+    missing = required - found
+    if missing:
+        console.print(f"  [red]✗ Cookie file is missing required fields: {', '.join(sorted(missing))}[/red]")
+        console.print("  [dim]Export fresh cookies from x.com and try again.[/dim]")
         return
 
     cfg.set("twitter.cookies_path", str(cookies_file))

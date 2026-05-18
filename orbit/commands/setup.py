@@ -17,7 +17,7 @@ from orbit.config import Config
 app = typer.Typer(help="Connect your platforms")
 console = Console()
 
-PLATFORMS = ["LinkedIn", "YouTube", "Threads", "Facebook", "Substack", "Twitter"]
+PLATFORMS = ["LinkedIn", "YouTube", "Threads", "Facebook", "Substack", "Twitter", "Anthropic"]
 _CALLBACK_PORT = 8080
 _REDIRECT_URI = f"http://localhost:{_CALLBACK_PORT}"
 
@@ -77,6 +77,13 @@ def _setup_platform(cfg: Config, platform: str) -> None:
 
     elif platform == "twitter":
         _setup_twitter(cfg)
+
+    elif platform == "anthropic":
+        console.print("  You need an Anthropic API key to generate drafts.")
+        console.print("  Get one at: [cyan]https://console.anthropic.com/keys[/cyan]")
+        key = Prompt.ask("  API Key", password=True)
+        cfg.set("anthropic.api_key", key)
+        console.print("  [green]✓ Anthropic configured[/green]")
 
     else:
         console.print(f"  [yellow]Unknown platform: {platform}[/yellow]")

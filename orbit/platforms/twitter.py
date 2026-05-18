@@ -16,7 +16,10 @@ class BookmarkCache:
     def load(self) -> list[dict] | None:
         if not self._path.exists():
             return None
-        data = json.loads(self._path.read_text())
+        try:
+            data = json.loads(self._path.read_text())
+        except json.JSONDecodeError:
+            return None
         if time.time() - data.get("ts", 0) > CACHE_TTL:
             return None
         return data.get("items")
@@ -42,6 +45,12 @@ class TwitterClient:
             if len(parts) >= 7:
                 name, value = parts[5], parts[6]
                 cookies[name] = value
+        for required in ("ct0", "auth_token"):
+            if required not in cookies:
+                raise ValueError(
+                    f"Cookie '{required}' not found in {self._cookies_path}. "
+                    "Export fresh cookies from your browser and re-run: orbit setup --platform twitter"
+                )
         return cookies
 
     def get_bookmarks(self, limit: int = 50) -> list[dict[str, Any]]:

@@ -2,5 +2,7 @@
 __pycache__/
 *.pyc
 .env
+.bitwarden/
 *.db
 orbit.egg-info/
+.remember/

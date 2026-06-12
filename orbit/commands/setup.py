@@ -62,12 +62,58 @@ def _setup_platform(cfg: Config, platform: str) -> None:
 
     elif platform in ("threads", "facebook"):
         console.print("Threads and Facebook use the Meta Graph API.")
-        console.print("Create an app at: https://developers.facebook.com/apps")
+        console.print("Get the values at: https://developers.facebook.com/apps  →  App settings  →  Basic")
+        console.print(
+            "[dim]App ID + Secret let us inspect token expiry and auto-upgrade short-lived → "
+            "long-lived (60 days). Token is required; the rest reuse stored values if you press Enter.[/dim]"
+        )
+
+        existing_app_id = cfg.get(f"{platform}.app_id") or ""
+        existing_app_secret = cfg.get(f"{platform}.app_secret") or ""
+        existing_user_id = cfg.get(f"{platform}.user_id") or ""
+
         token = Prompt.ask("  Access Token", password=True)
-        user_id = Prompt.ask("  User/Page ID")
-        cfg.set(f"{platform}.access_token", token)
-        cfg.set(f"{platform}.user_id", user_id)
-        console.print(f"  [green]✓ {platform.title()} configured[/green]")
+        app_id = Prompt.ask("  App ID", default=existing_app_id).strip()
+        app_secret = Prompt.ask(
+            f"  App Secret {'(press Enter to keep stored value)' if existing_app_secret else ''}",
+            default=existing_app_secret,
+            password=True,
+        ).strip()
+        user_id = Prompt.ask("  User/Page ID", default=existing_user_id).strip()
+
+        # Store app credentials BEFORE inspecting — inspect_and_upgrade_token
+        # reads them from config to do the long-lived-token exchange.
+        if app_id:
+            cfg.set(f"{platform}.app_id", app_id)
+        if app_secret:
+            cfg.set(f"{platform}.app_secret", app_secret)
+        if user_id:
+            cfg.set(f"{platform}.user_id", user_id)
+
+        # Try to inspect + upgrade the token. Best-effort: if the inspect/exchange
+        # fails, fall back to storing the raw token and let the user retry later.
+        from orbit.platforms.meta_token import inspect_and_upgrade_token, TokenInfo
+        try:
+            info: TokenInfo = inspect_and_upgrade_token(token, platform)
+            cfg.set(f"{platform}.access_token", info.token)
+            if info.expires_at_iso:
+                cfg.set(f"{platform}.token_expires_at", info.expires_at_iso)
+            else:
+                # Wipe any stale expiry from a previous token
+                cfg.set(f"{platform}.token_expires_at", None)
+            if info.upgraded:
+                console.print(f"  [green]✓[/green] Upgraded to long-lived token, valid until {info.expires_at_iso}")
+            elif info.expires_at_iso:
+                console.print(f"  [green]✓[/green] Token valid until {info.expires_at_iso}")
+            else:
+                console.print(
+                    f"  [green]✓[/green] {platform.title()} configured "
+                    f"[dim](expiry unknown — likely app credentials missing or wrong)[/dim]"
+                )
+        except Exception as e:
+            cfg.set(f"{platform}.access_token", token)
+            console.print(f"  [green]✓[/green] {platform.title()} configured")
+            console.print(f"  [yellow]⚠ Could not check/upgrade token expiry: {e}[/yellow]")
 
     elif platform == "substack":
         console.print("Substack has no public API. Orbit will draft content for manual publish.")
@@ -114,8 +160,12 @@ def _setup_youtube(cfg: Config) -> None:
         console.print(f"  [red]✗ Could not parse JSON: {e}[/red]")
         return
 
-    # Build OAuth URL
-    scope = "https://www.googleapis.com/auth/youtube.readonly"
+    # Build OAuth URL — request both Data API + Analytics API scopes so we can
+    # both list videos and pull traffic-source / engagement reports.
+    scope = (
+        "https://www.googleapis.com/auth/youtube.readonly "
+        "https://www.googleapis.com/auth/yt-analytics.readonly"
+    )
     params = urllib.parse.urlencode({
         "response_type": "code",
         "client_id": client_id,
@@ -235,17 +285,21 @@ def _setup_twitter(cfg: Config) -> None:
     console.print("  [bold]Step 4:[/bold] Save the file somewhere (e.g. ~/Downloads/x_cookies.txt)\n")
 
     # Auto-detect cookies file in Downloads
-    default_path = ""
     downloads = Path.home() / "Downloads"
     candidates = []
     if downloads.is_dir():
-        candidates = sorted(downloads.glob("*cookies*.txt"), key=lambda p: p.stat().st_mtime, reverse=True)
-    if candidates:
-        default_path = str(candidates[0])
-        console.print(f"  [dim]Found: {default_path}[/dim]")
+        candidates = sorted(downloads.glob("*cookies*"), key=lambda p: p.stat().st_mtime, reverse=True)
 
-    cookies_path = Prompt.ask("  Path to cookies.txt file", default=default_path or "~/Downloads/x_cookies.txt")
-    cookies_file = Path(cookies_path).expanduser()
+    if candidates:
+        cookies_file = candidates[0]
+        console.print(f"  [green]Auto-detected:[/green] {cookies_file}")
+        console.print("  [dim]Press Enter to use it, or type a different path.[/dim]")
+        override = Prompt.ask("  Path", default="").strip()
+        if override:
+            cookies_file = Path(override).expanduser()
+    else:
+        raw = Prompt.ask("  Path to cookies.txt file", default="~/Downloads/x_cookies.txt")
+        cookies_file = Path(raw).expanduser()
 
     if not cookies_file.exists():
         console.print(f"  [red]✗ File not found: {cookies_file}[/red]")

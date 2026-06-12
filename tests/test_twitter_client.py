@@ -1,6 +1,11 @@
 import pytest
-from unittest.mock import patch, MagicMock
-from orbit.platforms.twitter import TwitterClient, BookmarkCache
+from unittest.mock import patch, MagicMock, AsyncMock
+from orbit.platforms.twitter import (
+    TwitterClient,
+    BookmarkCache,
+    _parse_netscape_cookies,
+    _extract_source_links,
+)
 from pathlib import Path
 import json, time
 
@@ -32,28 +37,109 @@ def test_load_cookies_raises_on_missing_ct0(tmp_path):
     cookies_file = tmp_path / "cookies.txt"
     # Valid netscape format but missing ct0 and auth_token
     cookies_file.write_text("# Netscape HTTP Cookie File\n.x.com\tTRUE\t/\tTRUE\t0\tother_cookie\tvalue\n")
-    client = TwitterClient(cookies_path=str(cookies_file))
     with pytest.raises(ValueError, match="ct0"):
-        client._load_cookies()
+        _parse_netscape_cookies(cookies_file)
 
-def test_get_bookmarks_makes_http_call(tmp_path):
+def test_parse_netscape_cookies_returns_dict(tmp_path):
     cookies_file = tmp_path / "cookies.txt"
-    # Valid cookies with required fields
     cookies_file.write_text(
         "# Netscape HTTP Cookie File\n"
         ".x.com\tTRUE\t/\tTRUE\t0\tct0\tfaketoken\n"
         ".x.com\tTRUE\t/\tTRUE\t0\tauth_token\tfakeauth\n"
     )
-    client = TwitterClient(cookies_path=str(cookies_file))
-    mock_response = MagicMock()
-    mock_response.json.return_value = {"data": {"bookmark_timeline_v2": {"timeline": {"instructions": []}}}}
-    mock_response.raise_for_status = MagicMock()
-    with patch("orbit.platforms.twitter.httpx.get", return_value=mock_response) as mock_get:
-        result = client.get_bookmarks(limit=10)
-    mock_get.assert_called_once()
-    assert result == []
+    cookies = _parse_netscape_cookies(cookies_file)
+    assert cookies["ct0"] == "faketoken"
+    assert cookies["auth_token"] == "fakeauth"
 
 def test_bookmark_cache_load_handles_corrupt_json(tmp_path):
     cache = BookmarkCache(tmp_path / "cache.json")
     (tmp_path / "cache.json").write_text("not valid json{{{")
     assert cache.load() is None
+
+
+# Regression: drafts 913–915 had empty source_links because the GitHub URL
+# lived in note_tweet (long-tweet body), not legacy.entities.urls. The
+# extractor must also look in note_tweet and quoted_status.
+
+def test_extract_source_links_from_legacy_entities():
+    tweet = {
+        "legacy": {
+            "entities": {
+                "urls": [
+                    {"expanded_url": "https://github.com/org/repo"},
+                    {"expanded_url": "https://example.com/post"},
+                ]
+            }
+        }
+    }
+    assert _extract_source_links(tweet) == [
+        "https://github.com/org/repo",
+        "https://example.com/post",
+    ]
+
+
+def test_extract_source_links_from_note_tweet():
+    """Long tweets store URLs in note_tweet.note_tweet_results.result.entity_set.urls."""
+    tweet = {
+        "legacy": {"entities": {"urls": []}},
+        "note_tweet": {
+            "note_tweet_results": {
+                "result": {
+                    "entity_set": {
+                        "urls": [
+                            {"expanded_url": "https://github.com/microsoft/skillopt"}
+                        ]
+                    }
+                }
+            }
+        },
+    }
+    assert _extract_source_links(tweet) == ["https://github.com/microsoft/skillopt"]
+
+
+def test_extract_source_links_from_quoted_tweet():
+    """When a bookmark quote-tweets a project, the URL is in the quoted tweet."""
+    tweet = {
+        "legacy": {"entities": {"urls": []}},
+        "quoted_status_result": {
+            "result": {
+                "legacy": {
+                    "entities": {
+                        "urls": [
+                            {"expanded_url": "https://github.com/llamaindex/liteparse"}
+                        ]
+                    }
+                }
+            }
+        },
+    }
+    assert _extract_source_links(tweet) == [
+        "https://github.com/llamaindex/liteparse"
+    ]
+
+
+def test_extract_source_links_dedupes_across_sources():
+    """A URL that appears in both legacy and note_tweet should appear once."""
+    tweet = {
+        "legacy": {
+            "entities": {
+                "urls": [{"expanded_url": "https://github.com/org/repo"}]
+            }
+        },
+        "note_tweet": {
+            "note_tweet_results": {
+                "result": {
+                    "entity_set": {
+                        "urls": [{"expanded_url": "https://github.com/org/repo"}]
+                    }
+                }
+            }
+        },
+    }
+    assert _extract_source_links(tweet) == ["https://github.com/org/repo"]
+
+
+def test_extract_source_links_missing_sections_returns_empty():
+    """Tweet with no URL entities anywhere returns [] without raising."""
+    assert _extract_source_links({"legacy": {}}) == []
+    assert _extract_source_links({}) == []

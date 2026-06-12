@@ -15,7 +15,7 @@ PLATFORMS = ["linkedin", "youtube", "threads", "facebook", "substack"]
 
 _CREDENTIAL_KEYS: dict[str, list[str]] = {
     "linkedin": ["linkedin.access_token", "linkedin.author_urn"],
-    "youtube": ["youtube.api_key", "youtube.channel_id"],
+    "youtube": ["youtube.access_token", "youtube.channel_id"],
     "threads": ["threads.access_token"],
     "facebook": ["facebook.access_token"],
     "substack": ["substack.publication_url"],

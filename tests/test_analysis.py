@@ -38,3 +38,81 @@ def test_build_pattern_prompt_contains_examples():
     assert "test post" in prompt
     assert "bookmark text" in prompt
     assert "[1]" in prompt  # numbered drafts instruction
+
+
+def test_build_pattern_prompt_embeds_recent_topics_for_fatigue_guard():
+    from orbit.analysis import build_pattern_prompt
+    posts = [{"content": "p", "views": 1, "likes": 0, "like_rate": 0.0}]
+    bookmarks = [{"text": "b", "author": "@u", "url": "https://x.com/u/1"}]
+    recent = [
+        "Google 剛推出了 Gemini Spark",
+        "有人剛剛開源了 Cal.com fork",
+        "Anthropic Frontend Design skill",
+    ]
+    prompt = build_pattern_prompt(posts, bookmarks, recent_topics=recent)
+    assert "TOPIC FATIGUE GUARD" in prompt
+    for topic in recent:
+        assert topic in prompt
+
+
+def test_build_pattern_prompt_handles_no_recent_topics():
+    """Backwards compat: when recent_topics is omitted/None, prompt still builds
+    and shows a sane placeholder rather than an empty section."""
+    from orbit.analysis import build_pattern_prompt
+    posts = [{"content": "p", "views": 1, "likes": 0, "like_rate": 0.0}]
+    bookmarks = [{"text": "b", "author": "@u", "url": "https://x.com/u/1"}]
+    # No recent_topics arg at all — proves the kwarg has a working default
+    prompt = build_pattern_prompt(posts, bookmarks)
+    assert "TOPIC FATIGUE GUARD" in prompt
+    assert "none — first post in this batch" in prompt
+
+
+def test_build_pattern_prompt_deprecates_template_d():
+    """Slump-recovery rule: template (d) should be marked DEPRECATED, not just sparing."""
+    from orbit.analysis import build_pattern_prompt
+    posts = [{"content": "p", "views": 1, "likes": 0, "like_rate": 0.0}]
+    bookmarks = [{"text": "b", "author": "@u", "url": "https://x.com/u/1"}]
+    prompt = build_pattern_prompt(posts, bookmarks)
+    assert "DEPRECATED" in prompt
+    assert "SKIP (d)" in prompt or "skip (d)" in prompt.lower()
+
+
+def test_build_pattern_prompt_includes_audience_width_rule():
+    from orbit.analysis import build_pattern_prompt
+    posts = [{"content": "p", "views": 1, "likes": 0, "like_rate": 0.0}]
+    bookmarks = [{"text": "b", "author": "@u", "url": "https://x.com/u/1"}]
+    prompt = build_pattern_prompt(posts, bookmarks)
+    assert "AUDIENCE WIDTH" in prompt
+    assert "general AI builder" in prompt or "anyone building with AI" in prompt
+
+
+def test_build_pattern_prompt_includes_recent_performance_recovery_mode():
+    from orbit.analysis import build_pattern_prompt
+    posts = [{"content": "p", "views": 1, "likes": 0, "like_rate": 0.0}]
+    bookmarks = [{"text": "b", "author": "@u", "url": "https://x.com/u/1"}]
+    prompt = build_pattern_prompt(
+        posts,
+        bookmarks,
+        recent_performance={
+            "sample_size": 3,
+            "baseline_like_rate": 1.17,
+            "median_like_rate": 0.8,
+            "below_baseline_count": 2,
+            "weak_recent_performance": True,
+            "examples": [{"opening": "Weak opener", "like_rate": 0.5}],
+        },
+    )
+    assert "RECENT PERFORMANCE SIGNAL" in prompt
+    assert "RECOVERY MODE is active" in prompt
+    assert "Weak opener" in prompt
+
+
+def test_build_pattern_prompt_for_six_drafts_uses_diversity_lanes():
+    from orbit.analysis import build_pattern_prompt
+    posts = [{"content": "p", "views": 1, "likes": 0, "like_rate": 0.0}]
+    bookmarks = [{"text": "b", "author": "@u", "url": "https://x.com/u/1"}]
+    prompt = build_pattern_prompt(posts, bookmarks, count=6)
+    assert "VARIATION PLAN" in prompt
+    assert "1. Tool utility" in prompt
+    assert "6. Builder implication" in prompt
+    assert "It is OK to reuse hook families" in prompt

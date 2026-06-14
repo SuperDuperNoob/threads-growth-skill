@@ -7,7 +7,7 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from orbit.config import Config
-from orbit.db import DB
+from orbit.db import DB, evaluate_staleness, last_metric_pull_per_platform
 from orbit.patterns import PatternStore
 from orbit.platforms.linkedin import LinkedInClient
 from orbit.platforms.threads import ThreadsClient
@@ -17,6 +17,11 @@ from orbit.embeddings import EMBEDDING_MODEL, embed_texts, pack_embedding
 
 app = typer.Typer(help="Pull metrics from connected platforms")
 console = Console()
+
+# Warn when a platform's newest metric is older than this. Threads syncs ~daily;
+# a 3-day gap means a token died or a platform is failing silently (see the
+# 2026-05 LinkedIn/YouTube outage that sat unnoticed for ~3 weeks).
+STALE_AFTER_DAYS = 3
 
 
 @app.callback(invoke_without_command=True)
@@ -28,8 +33,14 @@ def sync(
     cfg = Config()
     db = DB()
     ps = PatternStore()
-    now = datetime.now(timezone.utc).isoformat()
+    now_dt = datetime.now(timezone.utc)
+    now = now_dt.isoformat()
     targets = [platform] if platform else ["linkedin", "youtube", "threads"]
+
+    # Collect failures so we can print them LOUDLY after the progress bar tears
+    # down — a dim spinner line scrolls away and is how the 2026-05 outage went
+    # unnoticed for ~3 weeks.
+    failures: list[tuple[str, str]] = []
 
     with Progress(SpinnerColumn(), TextColumn("{task.description}"), console=console) as progress:
         for target in targets:
@@ -50,16 +61,50 @@ def sync(
                 )
             except Exception as e:
                 summary = _summarize_sync_error(target, e)
+                failures.append((target, summary))
                 progress.update(
                     task,
                     description=f"[yellow]⊘ {target} skipped: {summary}[/yellow]",
                     completed=True,
                 )
 
+    # Loud, persistent failure recap — survives after the spinner is gone.
+    for target, summary in failures:
+        console.print(f"[bold yellow]⚠ {target} did NOT sync:[/bold yellow] {summary}")
+
+    _warn_if_stale(db, now_dt, targets)
+
     console.print(
         "\n[bold green]Sync complete.[/bold green] "
         "Run [cyan]orbit status[/cyan] to see what changed."
     )
+
+
+def _warn_if_stale(db: DB, now_dt: datetime, targets: list[str]) -> None:
+    """Print a loud warning for any platform whose newest metric is stale.
+
+    Catches silent multi-week outages: even when a sync 'succeeds' (no exception)
+    it can quietly stop recording fresh metrics if the upstream data froze.
+    """
+    last_pulls = last_metric_pull_per_platform(db.conn)
+    staleness = evaluate_staleness(
+        last_pulls, now=now_dt, platforms=targets, stale_after_days=STALE_AFTER_DAYS
+    )
+    for platform, info in staleness.items():
+        if not info["stale"]:
+            continue
+        if info["never"]:
+            console.print(
+                f"[bold yellow]⚠ {platform}: no metrics ever recorded[/bold yellow] "
+                f"— sync has never successfully pulled data."
+            )
+        else:
+            console.print(
+                f"[bold yellow]⚠ {platform}: last fresh metric was "
+                f"{info['days']:.0f} days ago[/bold yellow] "
+                f"(threshold {STALE_AFTER_DAYS}d) — likely a dead token or disabled app. "
+                f"Try [cyan]orbit setup --platform {platform}[/cyan]."
+            )
 
 
 def _sync_linkedin(cfg: Config, db: DB, ps: PatternStore, now: str) -> None:
@@ -103,7 +148,21 @@ def _sync_linkedin(cfg: Config, db: DB, ps: PatternStore, now: str) -> None:
     all_posts = list(db.conn["posts"].rows_where("platform = ?", ["linkedin"]))
     urns = [p["external_id"] for p in all_posts if p["external_id"]]
     if urns:
-        metrics_map = client.get_metrics(urns)
+        # Impressions/clicks come back batched for ALL posts via shareStatistics.
+        # likes/comments need a per-URN socialActions call (no batch endpoint), so
+        # we only enrich the 50 most-recent posts — the ones we actually analyze —
+        # to avoid 700+ extra calls per sync. Older posts keep impressions-only.
+        recent = sorted(
+            (p for p in all_posts if p["external_id"]),
+            key=lambda p: p.get("published_at") or "",
+            reverse=True,
+        )[:50]
+        enrich_urns = [p["external_id"] for p in recent]
+
+        # One batched shareStatistics call covers impressions for every post.
+        metrics_map = client.get_metrics(urns, enrich_social=False)
+        # Then enrich only the recent 50 with per-URN like/comment counts.
+        client.enrich_social_counts(metrics_map, enrich_urns)
         for post_row in all_posts:
             m = metrics_map.get(post_row["external_id"])
             if m:
@@ -165,7 +224,8 @@ def _sync_youtube(cfg: Config, db: DB, ps: PatternStore, now: str) -> None:
             )
 
     all_posts = list(db.conn["posts"].rows_where("platform = ?", ["youtube"]))
-    # Build metrics from freshly-fetched videos; existing posts not in current page won't update
+    # `get_videos` now paginates the full channel history (see youtube.py), so
+    # every stored post should appear here — not just the most recent 50.
     metrics_map = {v["external_id"]: v for v in videos}
     for post_row in all_posts:
         v = metrics_map.get(post_row["external_id"])

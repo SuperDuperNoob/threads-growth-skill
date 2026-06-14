@@ -1,3 +1,5 @@
+from __future__ import annotations
+from datetime import datetime, timezone
 from pathlib import Path
 import sqlite_utils
 
@@ -139,3 +141,56 @@ class DB:
                 "notes": str,           # user's freeform notes per item
             }, pk="id", not_null={"checklist_id", "phase", "label"},
                foreign_keys=[("checklist_id", "youtube_checklists", "id")])
+
+
+# ── Sync freshness helpers ────────────────────────────────────────────────
+# Pure functions so they're trivially testable without a live DB or clock.
+# `last_metric_pull_per_platform` does the I/O (one query); `evaluate_staleness`
+# is pure arithmetic with "now" injected. The sync command wires them together.
+
+def last_metric_pull_per_platform(conn) -> dict[str, str]:
+    """Return {platform: most-recent pulled_at ISO string} from the metrics table.
+
+    Platforms that have never recorded a metric are simply absent from the dict.
+    """
+    rows = conn.execute(
+        "SELECT platform, MAX(pulled_at) FROM metrics GROUP BY platform"
+    ).fetchall()
+    return {platform: pulled_at for platform, pulled_at in rows if pulled_at}
+
+
+def evaluate_staleness(
+    last_pulls: dict[str, str],
+    *,
+    now: datetime,
+    platforms: list[str],
+    stale_after_days: float,
+) -> dict[str, dict]:
+    """Pure: classify each platform's metric freshness against a threshold.
+
+    Args:
+      last_pulls: {platform: last pulled_at ISO} (from last_metric_pull_per_platform)
+      now: current time (injected, so the function stays deterministic/testable)
+      platforms: the platforms we expect to have data for
+      stale_after_days: warn when the newest metric is older than this many days
+
+    Returns {platform: {"days": float|None, "stale": bool, "never": bool}}.
+      never=True  → no metrics ever recorded for this platform
+      stale=True  → newest metric older than stale_after_days (or never pulled)
+    """
+    result: dict[str, dict] = {}
+    for platform in platforms:
+        iso = last_pulls.get(platform)
+        if not iso:
+            result[platform] = {"days": None, "stale": True, "never": True}
+            continue
+        last = datetime.fromisoformat(iso)
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        days = (now - last).total_seconds() / 86400.0
+        result[platform] = {
+            "days": days,
+            "stale": days > stale_after_days,
+            "never": False,
+        }
+    return result

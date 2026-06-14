@@ -76,51 +76,73 @@ class YouTubeClient:
         """GET against the YouTube Analytics API (separate host from Data API)."""
         return self._request("GET", f"{ANALYTICS_URL}/{path}", params=params)
 
-    def get_videos(self, max_results: int = 50) -> list[dict[str, Any]]:
-        search_resp = self._get(
-            "search",
-            {
-                "channelId": self.channel_id,
-                "part": "id",
-                "order": "date",
-                "maxResults": max_results,
-                "type": "video",
-            },
-        )
-        search_resp.raise_for_status()
-        video_ids = [
-            item["id"]["videoId"]
-            for item in search_resp.json().get("items", [])
-        ]
+    # YouTube Data API caps both `search.maxResults` and the `videos` id-batch at 50.
+    _PAGE_SIZE = 50
+
+    def get_videos(self, max_videos: int = 500) -> list[dict[str, Any]]:
+        """Fetch up to `max_videos` of the channel's videos, newest first.
+
+        Paginates the `search` endpoint via nextPageToken to collect IDs, then
+        hydrates them in `videos` batches of 50. Without pagination this capped
+        silently at the most recent 50 — older posts never received metric updates.
+
+        `max_videos` is a quota guard: `search` costs 100 units/page, so a huge
+        channel could otherwise blow the daily 10k-unit quota in one sync.
+        """
+        video_ids = self._list_video_ids(max_videos)
         if not video_ids:
             return []
 
-        details_resp = self._get(
-            "videos",
-            {
-                "id": ",".join(video_ids),
-                "part": "snippet,statistics",
-            },
-        )
-        details_resp.raise_for_status()
-
-        videos = []
-        for item in details_resp.json().get("items", []):
-            stats = item.get("statistics", {})
-            videos.append({
-                "external_id": item["id"],
-                "platform": "youtube",
-                "content": item["snippet"]["title"],
-                "published_at": item["snippet"]["publishedAt"],
-                "views": int(stats.get("viewCount", 0)),
-                "likes": int(stats.get("likeCount", 0)),
-                "comments": int(stats.get("commentCount", 0)),
-                "shares": 0,
-                "reposts": 0,
-                "clicks": 0,
-                "saves": 0,
-            })
+        videos: list[dict[str, Any]] = []
+        for start in range(0, len(video_ids), self._PAGE_SIZE):
+            batch = video_ids[start : start + self._PAGE_SIZE]
+            details_resp = self._get(
+                "videos",
+                {"id": ",".join(batch), "part": "snippet,statistics"},
+            )
+            details_resp.raise_for_status()
+            for item in details_resp.json().get("items", []):
+                stats = item.get("statistics", {})
+                videos.append({
+                    "external_id": item["id"],
+                    "platform": "youtube",
+                    "content": item["snippet"]["title"],
+                    "published_at": item["snippet"]["publishedAt"],
+                    "views": int(stats.get("viewCount", 0)),
+                    "likes": int(stats.get("likeCount", 0)),
+                    "comments": int(stats.get("commentCount", 0)),
+                    "shares": 0,
+                    "reposts": 0,
+                    "clicks": 0,
+                    "saves": 0,
+                })
         return videos
+
+    def _list_video_ids(self, max_videos: int) -> list[str]:
+        """Page through `search` collecting video IDs until exhausted or capped."""
+        ids: list[str] = []
+        page_token: str | None = None
+        while len(ids) < max_videos:
+            params: dict[str, Any] = {
+                "channelId": self.channel_id,
+                "part": "id",
+                "order": "date",
+                "maxResults": min(self._PAGE_SIZE, max_videos - len(ids)),
+                "type": "video",
+            }
+            if page_token:
+                params["pageToken"] = page_token
+            resp = self._get("search", params)
+            resp.raise_for_status()
+            data = resp.json()
+            for item in data.get("items", []):
+                vid = item.get("id", {}).get("videoId")
+                if vid:
+                    ids.append(vid)
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
+        return ids
 
     def get_external_traffic_sources(
         self,

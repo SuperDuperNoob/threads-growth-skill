@@ -60,3 +60,49 @@ def test_get_metrics_returns_dict(client):
         metrics = client.get_metrics(["urn:li:share:123"])
     assert metrics["urn:li:share:123"]["views"] == 1500
     assert metrics["urn:li:share:123"]["likes"] == 42
+
+
+def test_enrich_social_counts_backfills_likes_comments(client):
+    metrics_map = {
+        "urn:li:share:123": {
+            "views": 1500, "likes": 0, "comments": 0,
+            "shares": 3, "clicks": 89, "reposts": 0, "saves": 0,
+        }
+    }
+    social_response = {
+        "likesSummary": {"totalLikes": 42},
+        "commentsSummary": {"aggregatedTotalComments": 7},
+    }
+    with patch.object(client._http, "get") as mock_get:
+        mock_get.return_value = MagicMock(
+            status_code=200, json=lambda: social_response
+        )
+        client.enrich_social_counts(metrics_map, ["urn:li:share:123"])
+    assert metrics_map["urn:li:share:123"]["likes"] == 42
+    assert metrics_map["urn:li:share:123"]["comments"] == 7
+    # impressions untouched
+    assert metrics_map["urn:li:share:123"]["views"] == 1500
+
+
+def test_enrich_degrades_gracefully_on_403(client):
+    # Missing r_member_social scope → 403 → must NOT clobber existing values.
+    metrics_map = {"urn:li:share:1": {"likes": 5, "comments": 2, "views": 100}}
+    with patch.object(client._http, "get") as mock_get:
+        mock_get.return_value = MagicMock(status_code=403, json=lambda: {})
+        client.enrich_social_counts(metrics_map, ["urn:li:share:1"])
+    assert metrics_map["urn:li:share:1"]["likes"] == 5
+    assert metrics_map["urn:li:share:1"]["comments"] == 2
+
+
+def test_enrich_never_lowers_existing_count(client):
+    # shareStatistics already had a higher number than socialActions returns.
+    metrics_map = {"urn:li:share:1": {"likes": 50, "comments": 10, "views": 100}}
+    social_response = {
+        "likesSummary": {"totalLikes": 3},
+        "commentsSummary": {"aggregatedTotalComments": 1},
+    }
+    with patch.object(client._http, "get") as mock_get:
+        mock_get.return_value = MagicMock(status_code=200, json=lambda: social_response)
+        client.enrich_social_counts(metrics_map, ["urn:li:share:1"])
+    assert metrics_map["urn:li:share:1"]["likes"] == 50
+    assert metrics_map["urn:li:share:1"]["comments"] == 10

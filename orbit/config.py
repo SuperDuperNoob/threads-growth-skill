@@ -3,9 +3,11 @@ from pathlib import Path
 from typing import Any
 import json
 
+from orbit.paths import resolve_orbit_home
+
 class Config:
     def __init__(self, home: Path | None = None):
-        self.home = home or Path.home() / ".orbit"
+        self.home = resolve_orbit_home(home)
         self.home.mkdir(parents=True, exist_ok=True)
         self._path = self.home / "config.json"
         if not self._path.exists():

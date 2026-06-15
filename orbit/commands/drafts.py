@@ -450,3 +450,83 @@ def _color_status(status: str | None) -> str:
         "published": "[green]published[/green]",
     }
     return palette.get(status or "", status or "—")
+
+
+# --- headless scheduling (Hermes agent path) ---
+
+
+def resolve_schedule_slot(*, explicit: str | None, taken: set[str], now: datetime) -> str | None:
+    """Resolve the UTC-ISO publish slot for a draft.
+
+    Explicit slot (Hermes may pin a time) is used verbatim. Otherwise pick the
+    next free HKT slot via the same scheduler the interactive flow uses. Returns
+    None if no free slot in the lookahead window.
+    """
+    if explicit:
+        return explicit
+    from orbit.scheduling import next_slots
+
+    slots = next_slots(now, taken, count=1)
+    if not slots:
+        return None
+    return slots[0].astimezone(timezone.utc).isoformat()
+
+
+def _set_publish_slot(draft_id: int, slot_iso: str) -> None:
+    """Write publish_at + status='scheduled' so do_handoff has what it needs."""
+    db = DB()
+    db.conn["drafts"].update(draft_id, {"status": "scheduled", "publish_at": slot_iso})
+
+
+def do_schedule(draft_id: int, *, slot: str | None = None) -> dict:
+    """Schedule a saved draft to its platform targets via Postiz. JSON-shaped.
+
+    Sets the publish slot, then hands off through the existing do_handoff (which
+    routes Threads→Threads+Facebook, LinkedIn→LinkedIn). Returns a dict Hermes
+    can read; never raises for an ordinary handoff failure.
+    """
+    db = DB()
+    taken = {
+        row["publish_at"]
+        for row in db.conn.query(
+            "SELECT publish_at FROM drafts WHERE status='scheduled' AND publish_at IS NOT NULL"
+        )
+    }
+    slot_iso = resolve_schedule_slot(explicit=slot, taken=taken, now=datetime.now(timezone.utc))
+    if slot_iso is None:
+        return {"ok": False, "draft_id": draft_id, "error": "no free slot in lookahead window"}
+
+    # Serialize the DB write against Keith's Mac (shared NAS). Non-blocking: if
+    # the Mac holds the lock, fail fast rather than risk a concurrent write —
+    # Hermes logs it and retries on the next daily run.
+    from orbit.locking import writer_lock, LockHeld
+    from orbit.paths import resolve_orbit_home
+    try:
+        with writer_lock(resolve_orbit_home(), blocking=False):
+            _set_publish_slot(draft_id, slot_iso)
+    except LockHeld:
+        return {"ok": False, "draft_id": draft_id, "slot": slot_iso,
+                "error": "DB write-locked by another Orbit process (Mac sync?); skipped"}
+
+    result = do_handoff(draft_id)
+    if result.ok:
+        return {"ok": True, "draft_id": draft_id, "slot": slot_iso,
+                "postiz_id": result.postiz_id, "message": result.message}
+    return {"ok": False, "draft_id": draft_id, "slot": slot_iso, "error": result.message}
+
+
+@app.command("schedule")
+def schedule(
+    draft_id: int = typer.Argument(..., help="Draft id from `orbit draft --json` / `orbit drafts list`"),
+    slot: str = typer.Option(None, "--slot", help="Explicit UTC ISO time (default: next free HKT slot)"),
+) -> None:
+    """Schedule a saved draft to Threads+Facebook (or LinkedIn) via Postiz.
+
+    Headless-friendly: prints a JSON result to stdout and exits 0 on success,
+    non-zero on failure, so the Hermes agent can detect and log the outcome.
+    """
+    import json as _json
+
+    result = do_schedule(draft_id, slot=slot)
+    print(_json.dumps(result, ensure_ascii=False))
+    raise typer.Exit(0 if result["ok"] else 1)

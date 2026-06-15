@@ -82,10 +82,23 @@ def draft(
         status.print("[yellow]No bookmarks found.[/yellow] Make sure you have bookmarks on X.\n")
         raise typer.Exit(1)
 
-    _run_draft_generation(bookmarks, json_out=json_out)
+    if json_out:
+        # Bulletproof stdout discipline: redirect ALL stdout (Rich console,
+        # plain print, any helper) to stderr for the whole generation, so the
+        # only thing on real stdout is the JSON payload, written via the saved
+        # handle below. Individual call-site redirection is whack-a-mole; this
+        # covers helpers (_filter_hard_duplicate_sources etc.) we can't thread
+        # `status` into.
+        import sys
+        from contextlib import redirect_stdout
+        real_stdout = sys.stdout
+        with redirect_stdout(sys.stderr):
+            _run_draft_generation(bookmarks, json_out=json_out, json_stream=real_stdout)
+    else:
+        _run_draft_generation(bookmarks, json_out=json_out)
 
 
-def _run_draft_generation(sources: list[dict], *, json_out: bool = False) -> None:
+def _run_draft_generation(sources: list[dict], *, json_out: bool = False, json_stream=None) -> None:
     """Generate, display, save, and offer to publish Threads drafts.
 
     Shared entry point used by both `orbit draft` (bookmarks) and
@@ -245,7 +258,11 @@ def _run_draft_generation(sources: list[dict], *, json_out: bool = False) -> Non
             saved_texts, saved_sources, saved_ids,
             recent_topics=recent_topics, generated_at=now,
         )
-        print(_json.dumps(payload, ensure_ascii=False, indent=2))
+        # Write JSON to the real stdout handle (callers redirect stdout→stderr
+        # during generation, so this is the only thing on actual stdout).
+        import sys as _sys
+        out = json_stream if json_stream is not None else _sys.stdout
+        print(_json.dumps(payload, ensure_ascii=False, indent=2), file=out)
         return
 
     picks = _select_loop(

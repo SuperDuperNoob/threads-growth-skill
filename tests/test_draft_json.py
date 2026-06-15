@@ -61,3 +61,20 @@ def test_handles_fewer_ids_than_drafts_gracefully():
         recent_topics=[], generated_at="t",
     )
     assert [c["draft_id"] for c in payload["candidates"]] == [10, 11]
+
+
+def test_json_stream_separation():
+    """Regression: the JSON payload must be writable to a dedicated stream so
+    the real run can keep stdout pure even when helpers print during generation.
+    (A stray stdout write once corrupted the payload — see 2026-06-15.)"""
+    import io
+    from orbit.commands.draft import build_draft_json_payload
+    stream = io.StringIO()
+    payload = build_draft_json_payload(
+        ["draft one"], [{"url": "u", "text": "t"}], [1],
+        recent_topics=[], generated_at="t",
+    )
+    import json
+    print(json.dumps(payload), file=stream)
+    # round-trips cleanly from the isolated stream
+    assert json.loads(stream.getvalue())["candidates"][0]["draft_id"] == 1

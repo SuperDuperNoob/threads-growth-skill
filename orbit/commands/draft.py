@@ -13,6 +13,7 @@ from rich.prompt import Prompt
 from orbit.analysis import build_pattern_prompt, extract_top_patterns
 from orbit.config import Config
 from orbit.db import DB
+from orbit.duplicates import check_duplicate, filter_duplicate_sources, record_content
 from orbit.embeddings import embed_texts, filter_duplicates, rank_bookmarks, unpack_embedding
 from orbit.platforms.threads import ThreadsClient
 from orbit.platforms.twitter import BookmarkCache, TwitterClient
@@ -26,69 +27,86 @@ _CACHE_PATH = Path.home() / ".orbit" / "bookmarks_cache.json"
 @app.callback(invoke_without_command=True)
 def draft(
     force_refresh: bool = typer.Option(False, "--refresh", "-r", help="Force re-fetch bookmarks"),
+    json_out: bool = typer.Option(
+        False, "--json",
+        help="Non-interactive: generate, score, save drafts, print JSON to stdout. "
+             "No prompts, no scheduling. For agent/headless use (Hermes).",
+    ),
 ) -> None:
     cfg = Config()
     db = DB()
 
+    # In JSON mode all human-facing status goes to stderr so stdout carries
+    # only the final JSON payload that Hermes parses.
+    status = Console(stderr=True) if json_out else console
+
     cookies_path = cfg.get("twitter.cookies_path")
     if not cookies_path:
-        console.print("\n[red]✗ Twitter not configured.[/red] Run: [cyan]orbit setup --platform twitter[/cyan]\n")
+        status.print("\n[red]✗ Twitter not configured.[/red] Run: [cyan]orbit setup --platform twitter[/cyan]\n")
         raise typer.Exit(1)
 
     api_key = os.environ.get("ANTHROPIC_API_KEY") or cfg.get("anthropic.api_key")
     if not api_key:
-        console.print("\n[red]✗ ANTHROPIC_API_KEY not set.[/red]")
-        console.print("  Set it with: [cyan]export ANTHROPIC_API_KEY=sk-ant-...[/cyan]")
-        console.print("  Or run: [cyan]orbit setup --platform anthropic[/cyan]\n")
+        status.print("\n[red]✗ ANTHROPIC_API_KEY not set.[/red]")
+        status.print("  Set it with: [cyan]export ANTHROPIC_API_KEY=sk-ant-...[/cyan]")
+        status.print("  Or run: [cyan]orbit setup --platform anthropic[/cyan]\n")
         raise typer.Exit(1)
 
     cache = BookmarkCache(_CACHE_PATH)
     bookmarks = None if force_refresh else cache.load()
 
     if bookmarks is None:
-        console.print("\n[dim]Fetching X bookmarks...[/dim]")
+        status.print("\n[dim]Fetching X bookmarks...[/dim]")
         try:
             client = TwitterClient(cookies_path=cookies_path)
             bookmarks = client.get_bookmarks(limit=50)
             cache.save(bookmarks)
-            console.print(f"  [green]✓[/green] Fetched {len(bookmarks)} bookmarks\n")
+            status.print(f"  [green]✓[/green] Fetched {len(bookmarks)} bookmarks\n")
         except FileNotFoundError:
-            console.print("\n[red]✗ Cookie file not found.[/red] Re-run: [cyan]orbit setup --platform twitter[/cyan]\n")
+            status.print("\n[red]✗ Cookie file not found.[/red] Re-run: [cyan]orbit setup --platform twitter[/cyan]\n")
             raise typer.Exit(1)
         except Exception as e:
             msg = str(e)
-            console.print(f"\n[red]✗ Failed to fetch bookmarks: {msg}[/red]")
+            status.print(f"\n[red]✗ Failed to fetch bookmarks: {msg}[/red]")
             if "anti-bot" in msg or "KEY_BYTE" in msg:
-                console.print("  [dim]This is usually transient. Try again in a minute.[/dim]\n")
+                status.print("  [dim]This is usually transient. Try again in a minute.[/dim]\n")
             elif "401" in msg or "403" in msg or "auth" in msg.lower():
-                console.print("  Your session may have expired. Re-run: [cyan]orbit setup --platform twitter[/cyan]\n")
+                status.print("  Your session may have expired. Re-run: [cyan]orbit setup --platform twitter[/cyan]\n")
             else:
-                console.print("  [dim]Re-run with[/dim] [cyan]orbit draft -r[/cyan] [dim]to retry, or[/dim] [cyan]orbit setup --platform twitter[/cyan] [dim]to refresh cookies.[/dim]\n")
+                status.print("  [dim]Re-run with[/dim] [cyan]orbit draft -r[/cyan] [dim]to retry, or[/dim] [cyan]orbit setup --platform twitter[/cyan] [dim]to refresh cookies.[/dim]\n")
             raise typer.Exit(1)
     else:
-        console.print(f"\n[dim]Using cached bookmarks ({len(bookmarks)} items)[/dim]\n")
+        status.print(f"\n[dim]Using cached bookmarks ({len(bookmarks)} items)[/dim]\n")
 
     if not bookmarks:
-        console.print("[yellow]No bookmarks found.[/yellow] Make sure you have bookmarks on X.\n")
+        status.print("[yellow]No bookmarks found.[/yellow] Make sure you have bookmarks on X.\n")
         raise typer.Exit(1)
 
-    _run_draft_generation(bookmarks)
+    _run_draft_generation(bookmarks, json_out=json_out)
 
 
-def _run_draft_generation(sources: list[dict]) -> None:
+def _run_draft_generation(sources: list[dict], *, json_out: bool = False) -> None:
     """Generate, display, save, and offer to publish Threads drafts.
 
     Shared entry point used by both `orbit draft` (bookmarks) and
     `orbit discover draft` (curated candidates). `sources` is a list of dicts
     with at least 'text', 'author', 'url' (matches BookmarkCache shape).
+
+    When json_out=True, runs non-interactively: generates and scores drafts,
+    saves them, prints a JSON payload to stdout (status to stderr), and returns
+    WITHOUT the interactive picker, LinkedIn prompt, or post-save action. This
+    is the path the Hermes agent drives headlessly.
     """
     cfg = Config()
     db = DB()
+    # All human-facing chatter goes to stderr in JSON mode; stdout is reserved
+    # for the single JSON payload at the end.
+    status = Console(stderr=True) if json_out else console
     api_key = os.environ.get("ANTHROPIC_API_KEY") or cfg.get("anthropic.api_key")
     if not api_key:
-        console.print("\n[red]✗ ANTHROPIC_API_KEY not set.[/red]")
-        console.print("  Set it with: [cyan]export ANTHROPIC_API_KEY=sk-ant-...[/cyan]")
-        console.print("  Or run: [cyan]orbit setup --platform anthropic[/cyan]\n")
+        status.print("\n[red]✗ ANTHROPIC_API_KEY not set.[/red]")
+        status.print("  Set it with: [cyan]export ANTHROPIC_API_KEY=sk-ant-...[/cyan]")
+        status.print("  Or run: [cyan]orbit setup --platform anthropic[/cyan]\n")
         raise typer.Exit(1)
 
     # Auto-sync recent Threads posts if data is stale (>1 hour). Without this,
@@ -108,7 +126,7 @@ def _run_draft_generation(sources: list[dict]) -> None:
     """).fetchall()
 
     if not rows:
-        console.print("[yellow]No Threads data yet.[/yellow] Run [cyan]orbit sync --platform threads[/cyan] first.\n")
+        status.print("[yellow]No Threads data yet.[/yellow] Run [cyan]orbit sync --platform threads[/cyan] first.\n")
         raise typer.Exit(1)
 
     top_posts = [{"content": r[0], "views": r[1], "likes": r[2]} for r in rows]
@@ -123,13 +141,19 @@ def _run_draft_generation(sources: list[dict]) -> None:
     # Embedding-similarity dedup is a guess; "marked done" is ground truth.
     sources, bookmark_vectors = _filter_dismissed_sources(db, sources, bookmark_vectors)
 
+    sources, bookmark_vectors = _filter_hard_duplicate_sources(db, sources, bookmark_vectors)
+    if not sources:
+        status.print("[yellow]All sources look like topics you've already drafted, scheduled, or posted.[/yellow]")
+        status.print("  [dim]Try pulling a wider discovery batch or new X bookmarks.[/dim]\n")
+        raise typer.Exit(1)
+
     # Drop bookmarks that look like news items we already posted about.
     # Without this, the source pool keeps offering the same Cal.com / Hermes / etc.
     # stories that the user already turned into published Threads posts.
     sources, bookmark_vectors = _dedupe_against_published(db, sources, bookmark_vectors)
     if not sources:
-        console.print("[yellow]All bookmarks look like news you've already posted or dismissed.[/yellow]")
-        console.print("  [dim]Try bookmarking some fresh content on X, then run `orbit draft -r`.[/dim]\n")
+        status.print("[yellow]All bookmarks look like news you've already posted or dismissed.[/yellow]")
+        status.print("  [dim]Try bookmarking some fresh content on X, then run `orbit draft -r`.[/dim]\n")
         raise typer.Exit(1)
 
     # Rank bookmarks by similarity to the top-10 winners. Falls back to original
@@ -148,7 +172,7 @@ def _run_draft_generation(sources: list[dict]) -> None:
     recent_performance = _recent_threads_performance(db, limit=7)
 
     draft_count = min(6, len(selected_sources))
-    console.print(f"[dim]Generating {draft_count} drafts with Claude...[/dim]\n")
+    status.print(f"[dim]Generating {draft_count} drafts with Claude...[/dim]\n")
     prompt = build_pattern_prompt(
         top_patterns,
         selected_sources,
@@ -168,8 +192,8 @@ def _run_draft_generation(sources: list[dict]) -> None:
     drafts = _parse_drafts(raw)
 
     if not drafts:
-        console.print("[red]✗ Could not parse drafts from Claude response.[/red]")
-        console.print(raw)
+        status.print("[red]✗ Could not parse drafts from Claude response.[/red]")
+        status.print(raw)
         raise typer.Exit(1)
 
     # Track which bookmarks the initial drafts came from. Used by both:
@@ -182,6 +206,47 @@ def _run_draft_generation(sources: list[dict]) -> None:
         for i, d in enumerate(drafts)
     ]
     used_source_keys = {_source_key(s) for s in draft_sources if s}
+
+    # Headless path: save every generated draft, score them, emit JSON, return.
+    # No picker, no LinkedIn prompt, no post-save action — Hermes decides which
+    # saved draft_ids to schedule via `orbit drafts schedule <id>`.
+    if json_out:
+        import json as _json
+        now = datetime.now(timezone.utc).isoformat()
+        saved_ids: list[int] = []
+        saved_texts: list[str] = []
+        saved_sources: list[dict] = []
+        for i, draft_text in enumerate(drafts):
+            matched_source = draft_sources[i] if i < len(draft_sources) else (selected_sources[0] if selected_sources else {})
+            # Skip hard duplicates so Hermes never even sees an already-covered topic.
+            duplicate = check_duplicate(db, content=draft_text, source=matched_source)
+            if duplicate.is_duplicate:
+                status.print(f"[yellow]⚠ Skipped (duplicate: {duplicate.reason})[/yellow]")
+                continue
+            idea_id = db.conn["ideas"].insert({
+                "title": draft_text[:80], "source": "draft",
+                "status": "draft", "created_at": now,
+            }).last_pk
+            source_links = matched_source.get("source_links") or []
+            did = db.conn["drafts"].insert({
+                "idea_id": idea_id, "platform": "threads", "content": draft_text,
+                "status": "draft", "source_url": matched_source.get("url"),
+                "media_url": matched_source.get("media_url"),
+                "media_type": matched_source.get("media_type"),
+                "source_links": _json.dumps(source_links) if source_links else None,
+                "created_at": now,
+            }).last_pk
+            record_content(db, draft_id=did, content=draft_text, source=matched_source, status="draft")
+            saved_ids.append(did)
+            saved_texts.append(draft_text)
+            saved_sources.append(matched_source)
+
+        payload = build_draft_json_payload(
+            saved_texts, saved_sources, saved_ids,
+            recent_topics=recent_topics, generated_at=now,
+        )
+        print(_json.dumps(payload, ensure_ascii=False, indent=2))
+        return
 
     picks = _select_loop(
         drafts, ai, prompt,
@@ -201,6 +266,15 @@ def _run_draft_generation(sources: list[dict]) -> None:
     import json as _json
     matched_sources_by_draft: dict[int, dict] = {}
     for idx in picks:
+        matched_source = _best_source_match(drafts[idx], selected_sources) or (selected_sources[0] if selected_sources else {})
+        duplicate = check_duplicate(db, content=drafts[idx], source=matched_source)
+        if duplicate.is_duplicate:
+            console.print(
+                f"\n[yellow]⚠ Skipped draft {idx + 1}: duplicate blocked "
+                f"({duplicate.reason}"
+                f"{f', draft {duplicate.matched_draft_id}' if duplicate.matched_draft_id else ''}).[/yellow]"
+            )
+            continue
         idea_id = db.conn["ideas"].insert({
             "title": drafts[idx][:80],
             "source": "draft",
@@ -209,7 +283,6 @@ def _run_draft_generation(sources: list[dict]) -> None:
         }).last_pk
         # Find the source bookmark each draft was inspired by, by token overlap.
         # Falls back to the first source if no strong match (better than nothing).
-        matched_source = _best_source_match(drafts[idx], selected_sources) or (selected_sources[0] if selected_sources else {})
         matched_sources_by_draft[idx] = matched_source
         source_links = matched_source.get("source_links") or []
         draft_id = db.conn["drafts"].insert({
@@ -223,7 +296,18 @@ def _run_draft_generation(sources: list[dict]) -> None:
             "source_links": _json.dumps(source_links) if source_links else None,
             "created_at": now,
         }).last_pk
+        record_content(
+            db,
+            draft_id=draft_id,
+            content=drafts[idx],
+            source=matched_source,
+            status="draft",
+        )
         saved_ids.append(draft_id)
+
+    if not saved_ids:
+        console.print("\n[red]No drafts saved; every selected draft matched an existing topic.[/red]\n")
+        return
 
     saved_label = ", ".join(str(i + 1) for i in picks)
     console.print(f"\n[green]✓ Saved Threads draft(s) {saved_label}.[/green]\n")
@@ -232,7 +316,7 @@ def _run_draft_generation(sources: list[dict]) -> None:
     # has different norms (longer, English-heavy, personal-stake) so we use a
     # separate prompt — never just cross-post the Threads copy.
     linkedin_ids = _maybe_generate_linkedin(
-        db, ai, [matched_sources_by_draft[i] for i in picks], now,
+        db, ai, [matched_sources_by_draft[i] for i in picks if i in matched_sources_by_draft], now,
     )
     saved_ids.extend(linkedin_ids)
 
@@ -525,6 +609,31 @@ def _filter_dismissed_sources(
         console.print(
             f"  [dim]Skipped {dropped} bookmark(s) you marked as done.[/dim]"
         )
+    return kept_sources, kept_vectors
+
+
+def _filter_hard_duplicate_sources(
+    db: DB,
+    sources: list[dict],
+    bookmark_vectors: list[list[float]],
+) -> tuple[list[dict], list[list[float]]]:
+    """Drop candidates that match already drafted/scheduled/published topics."""
+    kept_sources, dropped = filter_duplicate_sources(db, sources)
+    if not dropped:
+        return sources, bookmark_vectors
+
+    kept_keys = {_source_key(s) for s in kept_sources}
+    kept_vectors: list[list[float]] = []
+    for src, vec in zip(sources, bookmark_vectors):
+        if _source_key(src) in kept_keys:
+            kept_vectors.append(vec)
+
+    console.print(
+        f"  [dim]Hard-blocked {len(dropped)} duplicate topic/source candidate(s).[/dim]"
+    )
+    for src, decision in dropped[:3]:
+        preview = (src.get("text") or src.get("url") or "")[:80].replace("\n", " ")
+        console.print(f"    [dim]- {decision.reason}: {preview}[/dim]")
     return kept_sources, kept_vectors
 
 
@@ -971,6 +1080,57 @@ def _score_threads_draft_virality(draft: str) -> dict:
         "label": label,
         "color": color,
         "reasons": reasons or ["no clear signals"],
+    }
+
+
+def _draft_topic(draft: str, source: dict | None) -> str:
+    """Short topic slug for a draft, for Hermes' topic-variety reasoning.
+
+    Prefers a brand/product name from the source bookmark; falls back to the
+    draft's first line trimmed. Not a precise classifier — just enough signal
+    for an agent to notice 'these two are the same story'.
+    """
+    if source:
+        for key in ("title", "text"):
+            val = (source.get(key) or "").strip()
+            if val:
+                return val[:60]
+    first = (draft or "").strip().splitlines()
+    return first[0][:60] if first else ""
+
+
+def build_draft_json_payload(
+    drafts: list[str],
+    sources: list[dict],
+    saved_ids: list[int],
+    *,
+    recent_topics: list[str],
+    generated_at: str,
+) -> dict:
+    """Shape generated drafts + scores into the JSON Hermes reads off stdout.
+
+    Pure: no DB, no network. Emits one candidate per SAVED id (a draft that was
+    blocked/not saved is simply omitted), pairing ids to drafts positionally.
+    """
+    candidates = []
+    for i, draft_id in enumerate(saved_ids):
+        if i >= len(drafts):
+            break
+        text = drafts[i]
+        score = _score_threads_draft_virality(text)
+        source = sources[i] if i < len(sources) else None
+        candidates.append({
+            "draft_id": draft_id,
+            "score": score["score"],
+            "label": score["label"],
+            "topic": _draft_topic(text, source),
+            "text": text,
+            "signals": score["reasons"],
+        })
+    return {
+        "generated_at": generated_at,
+        "recent_topics": recent_topics,
+        "candidates": candidates,
     }
 
 

@@ -3,9 +3,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sqlite_utils
 
+from orbit.paths import resolve_orbit_home
+
 class DB:
     def __init__(self, home: Path | None = None):
-        home = home or Path.home() / ".orbit"
+        home = resolve_orbit_home(home)
         home.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite_utils.Database(home / "orbit.db")
         self._migrate()
@@ -39,6 +41,7 @@ class DB:
                 "media_type": str,
                 "media_path": str,
                 "external_id": str,
+                "source_links": str,
                 "created_at": str,
             }, pk="id", not_null={"platform", "status"},
                foreign_keys=[("idea_id", "ideas", "id")])
@@ -94,6 +97,7 @@ class DB:
                 "text": str,
                 "media_url": str,
                 "media_type": str,
+                "source_links": str,
                 "source_likes": int,
                 "source_retweets": int,
                 "source_views": int,
@@ -104,6 +108,34 @@ class DB:
             }, pk="id", not_null={"tweet_id", "url", "status"})
             # Unique on tweet_id so we don't re-store the same candidate
             self.conn["discoveries"].create_index(["tweet_id"], unique=True)
+        else:
+            existing_discovery_cols = {c.name for c in self.conn["discoveries"].columns}
+            if "source_links" not in existing_discovery_cols:
+                self.conn["discoveries"].add_column("source_links", str)
+
+        if "content_ledger" not in self.conn.table_names():
+            self.conn["content_ledger"].create({
+                "id": int,
+                "platform": str,
+                "draft_id": int,
+                "source_key": str,
+                "canonical_url": str,
+                "topic_fingerprint": str,
+                "entities": str,
+                "content": str,
+                "status": str,
+                "created_at": str,
+            }, pk="id", not_null={"platform", "status", "created_at"},
+               foreign_keys=[("draft_id", "drafts", "id")])
+            self.conn["content_ledger"].create_index(
+                ["platform", "source_key"], unique=True, if_not_exists=True
+            )
+            self.conn["content_ledger"].create_index(
+                ["platform", "canonical_url"], if_not_exists=True
+            )
+            self.conn["content_ledger"].create_index(
+                ["platform", "topic_fingerprint"], if_not_exists=True
+            )
 
         if "youtube_projects" not in self.conn.table_names():
             self.conn["youtube_projects"].create({

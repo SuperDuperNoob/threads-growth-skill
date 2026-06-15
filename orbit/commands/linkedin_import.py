@@ -1,17 +1,25 @@
 """orbit linkedin import — ingest LinkedIn data exports into Orbit's DB.
 
-Supports two LinkedIn-side artifacts that complement each other:
+Supports three LinkedIn-side artifacts that complement each other:
 
 1. AggregateAnalytics_*.xlsx — what you download from LinkedIn Analytics page.
    Has the TOP POSTS sheet: 50 highest-engagement + 50 highest-impression posts
    with URL, date, engagement count, impression count. Post text is implied via
-   URL slug only.
+   URL slug only. Bundles likes+comments+reposts into one 'engagements' total.
 
-2. Shares.csv (from https://www.linkedin.com/mypreferences/d/download-my-data)
+2. SinglePostAnalytics_*.xlsx — per-post export from a single post's analytics
+   page ('Post analytics' key-value sheet). Carries the TRUE Reactions/Comments/
+   Reposts/Saves split that the LinkedIn API can't return for personal authors.
+   This is the only source of real likes/comments — use it for the recent posts
+   you care about. Imported via `orbit linkedin import single <files...>`.
+
+3. Shares.csv (from https://www.linkedin.com/mypreferences/d/download-my-data)
    Has the full post text + date for every share. No engagement counts.
 
-When you have both, the importer joins them by LinkedIn URN so each post gets
-text + engagement + impressions in one row.
+All three key on the IN-URL post URN (…-share-<urn>-…), NOT the filename URN
+(SinglePostAnalytics filenames carry a *different* URN than the post URL). The
+in-URL URN is what API-synced rows store as posts.external_id, so importing
+attaches to existing posts rather than forking duplicates. Idempotent on URN.
 """
 from __future__ import annotations
 import csv
@@ -209,6 +217,139 @@ def import_shares(
     console.print(
         f"\n[green]✓[/green] Backfilled text on {backfilled} posts, inserted {inserted} new "
         f"(no analytics) from {csv_path.name}\n"
+    )
+
+
+@app.command("single")
+def import_single_cmd(
+    xlsx_paths: list[Path] = typer.Argument(
+        ..., exists=True,
+        help="One or more SinglePostAnalytics_*.xlsx exports from a post's analytics page",
+    ),
+) -> None:
+    """Import per-post SinglePostAnalytics exports (real reaction/comment breakdown).
+
+    Unlike `import analytics` (the aggregate TOP POSTS sheet), these per-post files
+    carry the true Reactions/Comments/Reposts/Saves split that the LinkedIn API
+    cannot return for personal authors. Idempotent on the in-URL post URN.
+    """
+    import_single(xlsx_paths)
+
+
+def parse_single_post_analytics(xlsx_path: Path) -> dict | None:
+    """Pure parser: SinglePostAnalytics_*.xlsx -> normalized metrics dict.
+
+    Returns None if the post URL can't be parsed into a URN. The sheet is a
+    key-value layout (label in col A, value in col B); the lower demographics
+    block has a 3rd column, so we only treat 2-col rows as metrics.
+
+    Mapping: views=Impressions, likes=Reactions, comments=Comments,
+    reposts=Reposts, shares=Reposts (mirror), saves=Saves, clicks=0.
+    """
+    from openpyxl import load_workbook
+
+    wb = load_workbook(xlsx_path, read_only=True, data_only=True)
+    ws = wb["Post analytics"] if "Post analytics" in wb.sheetnames else wb[wb.sheetnames[0]]
+
+    kv: dict[str, object] = {}
+    for r in ws.iter_rows(values_only=True):
+        if not r or r[0] is None or len(r) < 2 or r[1] is None:
+            continue
+        # Skip 3-col demographic rows ('Job title' | 'Founder' | '7%').
+        if len(r) >= 3 and r[2] is not None:
+            continue
+        kv[str(r[0]).strip()] = r[1]
+
+    url = str(kv.get("Post URL") or "")
+    parsed = _parse_post_url(url)
+    if not parsed:
+        return None
+    _slug, _ptype, urn = parsed
+
+    def _int(key: str) -> int:
+        try:
+            return int(kv.get(key) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    reposts = _int("Reposts")
+    return {
+        "urn": urn,
+        "url": url,
+        "published_at": _to_iso(kv.get("Post Date")),
+        "views": _int("Impressions"),
+        "likes": _int("Reactions"),
+        "comments": _int("Comments"),
+        "reposts": reposts,
+        "shares": reposts,  # mirror — locked mapping 2026-06-15
+        "saves": _int("Saves"),
+        "clicks": 0,  # not present in this export
+        "social_engagements": _int("Social engagements"),
+    }
+
+
+def import_single(xlsx_paths: list[Path], *, db: DB | None = None) -> None:
+    """I/O wrapper: parse each SinglePostAnalytics file and upsert into the DB.
+
+    Idempotent on the in-URL post URN (`posts.external_id`). Attaches a fresh
+    time-stamped metrics row to the matching post, creating placeholder
+    ideas/drafts/posts rows only when the post isn't already known.
+    """
+    db = db or DB()
+    now = datetime.now(timezone.utc).isoformat()
+    inserted_posts, metric_rows, skipped = 0, 0, 0
+
+    for path in xlsx_paths:
+        p = parse_single_post_analytics(Path(path))
+        if not p:
+            console.print(f"  [yellow]⚠ skipped[/yellow] (no URN): {Path(path).name}")
+            skipped += 1
+            continue
+
+        urn = p["urn"]
+        existing = list(db.conn["posts"].rows_where("external_id = ?", [urn]))
+        if existing:
+            post_row_id = existing[0]["id"]
+        else:
+            idea_id = db.conn["ideas"].insert({
+                "title": (p["url"].split("/posts/")[-1][:80].replace("-", " ") or urn),
+                "source": "import:linkedin-single",
+                "status": "published",
+                "created_at": p["published_at"] or now,
+            }).last_pk
+            draft_id = db.conn["drafts"].insert({
+                "idea_id": idea_id,
+                "platform": "linkedin",
+                "content": "",  # backfill text via `orbit linkedin import shares`
+                "status": "published",
+                "source_url": p["url"],
+                "created_at": p["published_at"] or now,
+            }).last_pk
+            post_row_id = db.conn["posts"].insert({
+                "draft_id": draft_id,
+                "platform": "linkedin",
+                "external_id": urn,
+                "published_at": p["published_at"] or now,
+            }).last_pk
+            inserted_posts += 1
+
+        db.conn["metrics"].insert({
+            "post_id": post_row_id,
+            "platform": "linkedin",
+            "views": p["views"],
+            "likes": p["likes"],
+            "comments": p["comments"],
+            "shares": p["shares"],
+            "reposts": p["reposts"],
+            "clicks": p["clicks"],
+            "saves": p["saves"],
+            "pulled_at": now,
+        })
+        metric_rows += 1
+
+    console.print(
+        f"\n[green]✓[/green] {metric_rows} metrics rows "
+        f"({inserted_posts} new posts, {skipped} skipped)\n"
     )
 
 

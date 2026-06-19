@@ -77,6 +77,19 @@ def test_build_pattern_prompt_deprecates_template_d():
     assert "SKIP (d)" in prompt or "skip (d)" in prompt.lower()
 
 
+def test_build_pattern_prompt_includes_bare_announcement_payoff_gate():
+    """Slump-recovery 2026-06-19: pure 'Brand launched X' announcements collapsed
+    to 0-0.06% like rate. The prompt must demote the bare-announcement shape and
+    require a concrete payoff/POV before the announcement counts."""
+    from orbit.analysis import build_pattern_prompt
+    posts = [{"content": "p", "views": 1, "likes": 0, "like_rate": 0.0}]
+    bookmarks = [{"text": "b", "author": "@u", "url": "https://x.com/u/1"}]
+    prompt = build_pattern_prompt(posts, bookmarks)
+    assert "PAYOFF GATE" in prompt
+    # The dead pattern must be named in DO NOT WRITE.
+    assert "announcement" in prompt.lower()
+
+
 def test_build_pattern_prompt_includes_audience_width_rule():
     from orbit.analysis import build_pattern_prompt
     posts = [{"content": "p", "views": 1, "likes": 0, "like_rate": 0.0}]

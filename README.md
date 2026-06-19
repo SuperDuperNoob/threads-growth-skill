@@ -1,5 +1,10 @@
 # Threads Growth Skill for Hermes Agent
 
+> **New here / reading the code?** Start with **[ARCHITECTURE.md](ARCHITECTURE.md)** —
+> it maps the live `orbit` Python CLI (how sync, drafting, dedup, and scheduling
+> fit together). The sections below describe the original cookie-scraping skill
+> and are kept for history; the working system is the `orbit` package.
+
 > Systematically improve your Threads content over time using your own real data.
 
 Built by [@krumjahn](https://www.threads.com/@krumjahn) — running live on my account since April 2026.

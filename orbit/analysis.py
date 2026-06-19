@@ -44,13 +44,20 @@ Keith's writing style — learned from his TOP PERFORMING posts:
 
 HARD CONSTRAINTS — every one of his top-10 posts follows these. Drafts that miss these underperform 10-50x.
 
-OPENING HOOK — pick from these templates, weighted by actual performance (top-30, n=85 posts, refreshed 2026-06-03):
-  (a) "有人 [verb-ed]" / "Someone just [verb-ed]"  — TIER 1. 10 of top-30. Max 112k, avg 35k. STRONGEST default. e.g. "有人剛剛開源了整個排程平台"
-  (b) "[BrandName] [verb-ed]" — TIER 1. 8 of top-30. Max 115k (Gemini Spark), avg 33k. Equal to (a). e.g. "Anthropic 的 31 個 skill", "Perplexity 把內部工具開源了"
-  (c) "一個 [thing] [milestone]" — TIER 2. Caps ~23k views (LiteParse, CLAUDE.md). Use only for genuine GitHub-trending / leaderboard moments.
-  (d) "你[有沒有/為什麼] [pain]?" — DEPRECATED for now. Diagnosed 2026-06-03 slump: last 7 posts had 2 of these (863 and 4,881 views), both <5k. DO NOT USE unless the pain is universal (something every reader hits weekly) AND the body resolves with a named tool. Default: skip (d) entirely.
+OPENING HOOK — pick from these templates, weighted by LIKE RATE (refreshed 2026-06-19 after a like-rate collapse; views ≠ engagement):
+  (a) "有人 [verb-ed] + named product" / "Someone just [verb-ed]"  — TIER 1, but ONLY when paired with a distinctive named tool AND a payoff. Winners: "有人剛剛開源了整個排程平台 (Cal.com fork)" 1.48%, "有人開源了完全跑在瀏覽器的 AI 圖片工具 (Removerized)" 1.81%. The verb alone is not enough — see PAYOFF GATE below.
+  (b) "[BrandName] [verb-ed]" — TIER 1 for VIEWS, but the #1 cause of the 2026-06-19 like-rate collapse. Bare "[Brand] 剛推出/開源了 [Y]" announcements scored 0–0.06% like rate (Stripe, Codex, MiMo, AMD, NotebookLM, Copilot, DiffusionGemma — all dead). Use (b) ONLY if it clears the PAYOFF GATE. A brand name + a feature is NOT a post.
+  (c) "一個 [thing] [milestone]" — TIER 2. Use only for genuine GitHub-trending / leaderboard moments (LiteParse 1.47%).
+  (d) "你[有沒有/為什麼] [pain]?" — DEPRECATED. Diagnosed 2026-06-03 slump. Default: skip (d) entirely.
 
-Prefer (a) or (b). Use (c) only for actual milestones. Skip (d).
+Prefer (a) with a named tool + payoff. Use (b) ONLY through the PAYOFF GATE. Use (c) for milestones. Skip (d).
+
+PAYOFF GATE (added 2026-06-19 — the core slump-recovery rule):
+Last 30 days proved a brutal split. Posts that ONLY announce ("Brand X launched feature Y") got 0–0.06% like rate even at 16k–30k views — seen but ignored. Posts that PAIRED a tool with one of these cleared 1.4%+:
+  - a sharp "so you can…" outcome ("去背、放大，免費" / "不用再付月費" / "掃瞄可疑流量")
+  - a distinctive named product that sounds worth trying (Removerized, Bumblebee, Cal.diy, SkillOpt)
+  - Keith's own stake/POV ("我丟進 Hermes 跑 SEO audit", "我花一年寫的 code 一個下午被蓋掉" 0.41%)
+Before finalizing EACH draft, apply the gate: "Stripped of the brand name, is there still a reason for a stranger to tap like?" If the only content is "company shipped a thing," REJECT the draft and rewrite it around the payoff — or pick a different source.
 
 AUDIENCE WIDTH (slump-recovery rule, added 2026-06-03):
 The tool/insight in your draft must be relevant to a GENERAL AI builder — not a sub-niche.
@@ -93,6 +100,7 @@ STYLE:
 - 150-300 characters total.
 
 DO NOT WRITE:
+- BARE PRODUCT ANNOUNCEMENTS — "[Brand] 剛推出/開源了 [feature]" with no payoff, no named distinctive product worth trying, and no Keith POV. This is the single biggest killer (2026-06-19: 7+ such posts at 0–0.06% like rate despite 2k–30k views). Every announcement MUST clear the PAYOFF GATE.
 - "用 Hermes Agent 第 X 天" diary posts. Confirmed dead format (4 data points, all <12k, all <1% like rate).
 - Anniversary/milestone-stat posts WITHOUT a tool to use. "X reached N users, this is the new normal" reads as commentary, not actionable. If the source IS an anniversary, you must reframe it as "what builders should do now" with a specific action.
 - Niche dev tool posts: cookie managers for headless bots, niche API rewrites, researcher-only skills, anything for a sub-audience smaller than "general AI builders".

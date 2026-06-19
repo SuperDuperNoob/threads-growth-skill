@@ -158,7 +158,7 @@ def _run_draft_generation(sources: list[dict], *, json_out: bool = False, json_s
     if not sources:
         status.print("[yellow]All sources look like topics you've already drafted, scheduled, or posted.[/yellow]")
         status.print("  [dim]Try pulling a wider discovery batch or new X bookmarks.[/dim]\n")
-        raise typer.Exit(1)
+        _exit_empty(json_out, json_stream, db)
 
     # Drop bookmarks that look like news items we already posted about.
     # Without this, the source pool keeps offering the same Cal.com / Hermes / etc.
@@ -167,7 +167,7 @@ def _run_draft_generation(sources: list[dict], *, json_out: bool = False, json_s
     if not sources:
         status.print("[yellow]All bookmarks look like news you've already posted or dismissed.[/yellow]")
         status.print("  [dim]Try bookmarking some fresh content on X, then run `orbit draft -r`.[/dim]\n")
-        raise typer.Exit(1)
+        _exit_empty(json_out, json_stream, db)
 
     # Rank bookmarks by similarity to the top-10 winners. Falls back to original
     # order when embeddings aren't available yet (fresh DB, or OpenAI down).
@@ -176,7 +176,9 @@ def _run_draft_generation(sources: list[dict], *, json_out: bool = False, json_s
     selected_sources = _rank_sources_by_similarity(
         sources, winner_vectors, top_k=20, bookmark_vectors=bookmark_vectors,
     )
-    selected_sources = _require_media_sources(selected_sources)
+    selected_sources = _require_media_sources(selected_sources, status=status)
+    if not selected_sources:
+        _exit_empty(json_out, json_stream, db)
 
     # Last 5 posted topics — feeds the prompt's TOPIC FATIGUE GUARD so the LLM
     # avoids covering the same brand/cluster as a recent post (algorithm
@@ -463,25 +465,26 @@ def _rank_sources_by_similarity(
     return ranked
 
 
-def _require_media_sources(sources: list[dict]) -> list[dict]:
+def _require_media_sources(sources: list[dict], *, status=None) -> list[dict]:
     """Return only sources that carry image/video media for Threads drafts.
 
-    Threads posts should be media-backed whenever Orbit schedules them. If the
-    ranked source pool has no media at all, fail loudly rather than creating a
-    text-only post that underperforms and has nothing to attach.
+    Threads posts should be media-backed whenever Orbit schedules them. Returns
+    the media-backed subset (possibly empty — the caller decides how to handle
+    "no media", so the JSON path can emit an empty payload instead of crashing).
+    Status notes go to the passed-in console (stderr in --json mode).
     """
+    out = status or console
     media_sources = [s for s in sources if s.get("media_url")]
     if not media_sources:
-        console.print(
+        out.print(
             "[yellow]No image/video-backed sources available in this batch.[/yellow]"
         )
-        console.print(
+        out.print(
             "  [dim]Bookmark posts with screenshots/videos, then run[/dim] "
             "[cyan]orbit draft -r[/cyan][dim].[/dim]\n"
         )
-        raise typer.Exit(1)
-    if len(media_sources) < len(sources):
-        console.print(
+    elif len(media_sources) < len(sources):
+        out.print(
             f"  [dim]Using {len(media_sources)} media-backed source(s); "
             f"skipped {len(sources) - len(media_sources)} text-only source(s).[/dim]"
         )
@@ -1114,6 +1117,27 @@ def _draft_topic(draft: str, source: dict | None) -> str:
                 return val[:60]
     first = (draft or "").strip().splitlines()
     return first[0][:60] if first else ""
+
+
+def _exit_empty(json_out: bool, json_stream, db: "DB") -> "typing.NoReturn":
+    """End generation with no drafts.
+
+    In --json mode (Hermes), emit a valid empty payload to stdout and exit 0 —
+    "nothing to post today" is a normal outcome, not an error, so the agent can
+    parse `{"candidates": []}` and move on. Interactive mode keeps exiting 1.
+    """
+    if json_out:
+        import json as _json
+        import sys as _sys
+        payload = build_draft_json_payload(
+            [], [], [],
+            recent_topics=_recent_threads_topics(db, limit=5),
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+        out = json_stream if json_stream is not None else _sys.stdout
+        print(_json.dumps(payload, ensure_ascii=False, indent=2), file=out)
+        raise typer.Exit(0)
+    raise typer.Exit(1)
 
 
 def build_draft_json_payload(

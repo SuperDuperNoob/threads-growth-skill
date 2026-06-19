@@ -2,6 +2,8 @@
 from datetime import datetime, timedelta, timezone
 
 from orbit.discovery import score_candidate
+from orbit.commands.discover import _normalize_apify_item, select_autofill_sources
+from orbit.db import DB
 
 
 NOW = datetime(2026, 5, 22, 12, 0, tzinfo=timezone.utc)
@@ -127,3 +129,66 @@ def test_curated_list_is_non_empty():
     assert len(ALL) > 20
     assert "AnthropicAI" in OFFICIAL_AI_COMPANIES
     assert "AnthropicAI" in ALL
+
+
+def test_normalize_apify_item_maps_common_fields():
+    item = {
+        "text": "Anthropic just launched a Claude Code feature",
+        "userName": "AnthropicAI",
+        "tweetUrl": "https://x.com/AnthropicAI/status/1",
+        "tweetId": "1",
+        "likeCount": 1200,
+        "retweetCount": 200,
+        "media": [{"url": "https://pbs.twimg.com/media/a.jpg", "type": "photo"}],
+    }
+    out = _normalize_apify_item(item)
+    assert out["author"] == "@AnthropicAI"
+    assert out["tweet_id"] == "1"
+    assert out["source_likes"] == 1200
+    assert out["media_url"] == "https://pbs.twimg.com/media/a.jpg"
+
+
+def test_select_autofill_sources_requires_media_and_blocks_duplicates(orbit_home):
+    db = DB(orbit_home)
+    now = datetime.now(timezone.utc).isoformat()
+    idea_id = db.conn["ideas"].insert({
+        "title": "Claude Code Hivemind",
+        "source": "test",
+        "status": "published",
+        "created_at": now,
+    }).last_pk
+    db.conn["drafts"].insert({
+        "idea_id": idea_id,
+        "platform": "threads",
+        "content": "有人開源了一套讓 Claude Code 持續學習的系統，叫 Hivemind。",
+        "status": "published",
+        "created_at": now,
+    })
+    candidates = [
+        _candidate(
+            "Anthropic just launched Claude Code Hivemind memory for agents",
+            url="https://x.com/a/status/1",
+            created_at=now,
+            media_url="https://pbs.twimg.com/media/dup.jpg",
+            media_type="photo",
+            source_likes=2000,
+        ),
+        _candidate(
+            "OpenAI just launched a free Codex workflow for agent builders",
+            url="https://x.com/b/status/2",
+            created_at=now,
+            media_url=None,
+            media_type=None,
+            source_likes=2000,
+        ),
+        _candidate(
+            "Google just launched Gemini agent skills for builders",
+            url="https://x.com/c/status/3",
+            created_at=now,
+            media_url="https://pbs.twimg.com/media/gemini.jpg",
+            media_type="photo",
+            source_likes=2000,
+        ),
+    ]
+    selected = select_autofill_sources(db, candidates, min_score=35, count=3)
+    assert [s["url"] for s in selected] == ["https://x.com/c/status/3"]

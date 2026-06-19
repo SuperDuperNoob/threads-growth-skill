@@ -258,14 +258,19 @@ def test_require_media_sources_filters_text_only_sources():
     assert _require_media_sources([text_only, media]) == [media]
 
 
-def test_require_media_sources_exits_when_no_media():
-    import typer
-    try:
-        _require_media_sources([{"text": "without media"}])
-    except typer.Exit as e:
-        assert e.exit_code == 1
-    else:
-        raise AssertionError("expected typer.Exit")
+def test_require_media_sources_returns_empty_when_no_media():
+    # New contract: return the (empty) media-backed subset instead of raising,
+    # so the caller can emit an empty JSON payload (Hermes) rather than crash.
+    assert _require_media_sources([{"text": "without media"}]) == []
+
+
+def test_require_media_sources_keeps_only_media_backed():
+    sources = [
+        {"text": "no media"},
+        {"text": "has media", "media_url": "https://x.com/pic.jpg"},
+    ]
+    kept = _require_media_sources(sources)
+    assert kept == [{"text": "has media", "media_url": "https://x.com/pic.jpg"}]
 
 
 # --- virality score ---

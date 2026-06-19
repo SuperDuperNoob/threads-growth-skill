@@ -100,8 +100,12 @@ def show_splash() -> None:
 
 
 def _show_static() -> None:
-    console.print()
-    console.print(LOGO, style="bold #FF6B35")
-    console.print()
-    console.print(f"  {SUBTITLE}", style="dim")
-    console.print()
+    # Non-TTY means stdout is piped/redirected (e.g. `orbit draft --json`
+    # consumed by Hermes). The splash is decoration — keep it off stdout so the
+    # JSON payload stays the only thing there. Print to stderr instead.
+    err = Console(stderr=True)
+    err.print()
+    err.print(LOGO, style="bold #FF6B35")
+    err.print()
+    err.print(f"  {SUBTITLE}", style="dim")
+    err.print()

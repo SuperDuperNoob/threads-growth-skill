@@ -59,10 +59,20 @@ def test_linkedin_prompt_bans_vague_time_markers():
 def test_linkedin_prompt_includes_performance_floor_section():
     prompt = build_linkedin_prompt([])
     assert "PERFORMANCE FLOOR" in prompt
-    # Specific below-floor examples should be present so the LLM has anchors
-    assert "242" in prompt  # 6 months post
-    assert "202" in prompt  # son drew picture
-    assert "521" in prompt  # wife stopped asking
+    # The floor is now framed around ENGAGEMENT RATE, not raw impressions.
+    assert "ENGAGEMENT RATE" in prompt
+    assert "1.30%" in prompt  # re-derived median engagement rate (n=20)
+
+
+def test_linkedin_prompt_floor_targets_engagement_not_reach():
+    """Regression guard for the 2026-06-26 metric reversal: the prompt must
+    NOT tell the LLM that raw impressions are the goal, and must explicitly
+    reject the high-reach/low-engagement trap (the 9,468-impression 0.08% post)."""
+    prompt = build_linkedin_prompt([])
+    # The reach-without-resonance trap is called out by its real numbers.
+    assert "9,468" in prompt and "0.08%" in prompt
+    # The old impression-floor framing is gone.
+    assert "impression floor is ~700" not in prompt
 
 
 def test_linkedin_prompt_includes_posting_cadence_guidance():

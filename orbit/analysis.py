@@ -337,16 +337,28 @@ CLOSE:
 - A reflection or earned insight, not a sales pitch.
 - Optional: invite engagement with a specific question ("If you've done X, how did you handle Y?"). Top posts ask less than I'd expected — only 1/10 ends with a question. Don't force it.
 
-PERFORMANCE FLOOR (added 2026-06-03, expanded 2026-06-07):
-Keith's historical impression floor is ~700. Posts below ~500 are confirmed underperformers and warrant immediate pattern review. Confirmed below-floor data points:
-- "My gut had a 30% hit rate..." — 123 imp, 2026-06-07 (number framed FAILURE rate, not earned milestone)
-- "My son drew a picture of me..." — 202 imp (no count in hook)
-- "12 months ago I was begging Claude..." — 222 imp, 2026-06-06 (TIME-AGO span, 4pm Fri slot)
-- "After 6 months of evolving my AI workflow..." — 242 imp (duration span)
-- "After 149,000 views on an iPhone 15 Pro..." — 399 imp, 2026-06-04 (BRAG-FLEX, no struggle hook)
-- "My wife finally stopped asking..." — 521 imp (family-as-subject, no count)
+PERFORMANCE FLOOR (re-derived 2026-06-26 against REAL reaction data, n=20 posts):
+The metric that matters is ENGAGEMENT RATE — (reactions + comments) / impressions — NOT raw reach. Raw impressions are a vanity number on LinkedIn: a post the algorithm sprays to 9,468 feeds but that nobody reacts to (0.08%) builds no audience, while a post seen by 186 people where 2.15% react is a genuine connection. Optimize for the rate, not the reach.
 
-Six confirmed sub-floor posts. Pattern shared by ALL: opening fails either NUMBER-IN-HOOK or BRAG-FLEX rule. These two rules combined are the single most important determinant of staying above the 700-impression floor.
+Real engagement-rate distribution (n=20 posts with true reaction counts, May–Jun 2026):
+- MEDIAN engagement rate: 1.30%
+- MEAN: 1.56%   ·   RANGE: 0.12%–3.47%
+- FLOOR to clear: ~1.0% engagement. Below ~0.5% is a confirmed underperformer.
+
+Confirmed LOW-engagement posts (high reach, weak connection — the trap to avoid):
+- 9,468 impressions but only 0.08% engagement, 2026-06-18 (massive reach, near-zero reaction — reach without resonance)
+- 2,856 impressions at 0.42% engagement, 2026-06-13 (wide spray, thin engagement)
+- 1,040 impressions at 0.48% engagement, 2026-06-23
+
+Confirmed HIGH-engagement posts (the target — modest reach, strong reaction):
+- 2.50% engagement, 2026-06-01 (681 imp, 17 reactions)
+- 2.48% engagement (the "son drew a picture of me" post — only 202 impressions but one of the BEST engagement rates on file; the old prompt wrongly flagged this as a failure on impressions alone)
+- 2.15% engagement, 2026-06-25 (186 imp)
+- 2.11% engagement, 2026-06-17 (237 imp)
+- 1.82% engagement, 2026-06-22 (549 imp)
+- 1.34% engagement (the "my wife finally stopped asking" post — above the 1.30% median; also previously mis-flagged as a floor failure)
+
+KEY REVERSAL: several posts the OLD prompt called "sub-floor failures" (son's picture 202 imp, wife 521 imp) are in fact ABOVE-median on engagement rate. Do NOT avoid their patterns. The lesson is not "small reach = bad" — it's "write for the people who actually see it." A high reaction RATE is the goal even at modest reach.
 
 POSTING CADENCE (added 2026-06-03):
 LinkedIn B2B engagement is measurably stronger Tue/Thu mornings (8-10am posting time) than Mon/Wed/Fri. Keith's audience per demographics: tech/software founders, CEOs, software engineers, 2-50 employee companies — exactly the segment that's most active those mornings. If the draft will be posted Mon/Wed/Fri, weight extra effort into the first 100 chars to compensate for the weaker algorithmic baseline.
@@ -361,10 +373,12 @@ PRE-WRITE CHECKLIST — verify each before finalizing:
 [7] Length matches your chosen format's target (STORY 300-700; TEARDOWN 400-800; CONTRARIAN 250-500; RESOURCE 400-700; QUESTION→DATA 300-600); never over 1200 without earning it
 [8] Close is reflection/insight, not sales pitch
 [9] No hashtags. No leading emoji sequences.
-If any checkbox fails, REWRITE before submitting. A failing draft costs you 500+ impressions — confirmed by 6 sub-floor posts.
+If any checkbox fails, REWRITE before submitting. A failing draft trades away engagement rate — the metric that actually compounds into an audience.
 
 DATA LIMITATION DISCLAIMER:
-The top10/bottom10 statistical signals above were computed from a one-time manual export of 49 posts. The orbit DB's LinkedIn sync currently only captures impressions, not reactions/comments — so engagement-rate analysis from real-time data isn't possible. If patterns shift, the signals listed need to be re-derived from a fresh manual analysis. Don't assume they're auto-updated.
+The PERFORMANCE FLOOR engagement-rate numbers were re-derived 2026-06-26 from REAL reaction data (n=20 posts with true reaction/comment counts imported via `orbit linkedin single`). This corrected the prior framing, which optimized for raw impressions and mis-flagged several high-engagement posts as failures.
+
+The hook/format signals (top10/bottom10 above — has_specific_number, mentions_wife_family, etc.) are STILL from the one-time May 2026 export of 49 posts and have NOT yet been re-derived against engagement rate, because the post BODIES for the real-reaction posts aren't in the DB. To re-derive content signals: export a LinkedIn Shares.csv, run `orbit linkedin shares <Shares.csv>` to backfill post text, then recompute which hooks correlate with high engagement rate. Until then, treat the content signals as directional, not confirmed. Don't assume any of this is auto-updated.
 
 SOURCE MATERIAL from Keith's X bookmarks (use the ONE most interesting as the spine):
 

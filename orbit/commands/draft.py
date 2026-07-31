@@ -98,6 +98,34 @@ def draft(
         _run_draft_generation(bookmarks, json_out=json_out)
 
 
+def _judge_sources(ai, sources, recent_topics, top_patterns, cfg_quality, status):
+    """LLM re-rank of shortlisted sources by novelty/width/fit. Fail-open to input order."""
+    if not cfg_quality["source_judge"] or not sources:
+        return sources
+    from orbit.source_judge import (
+        build_source_judge_prompt,
+        parse_source_judgment,
+        rank_judged,
+    )
+    try:
+        prompt = build_source_judge_prompt(sources, recent_topics, top_patterns)
+        msg = ai.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        judged = parse_source_judgment(msg.content[0].text)
+    except Exception as e:  # noqa: BLE001 — fail-open, log visibly
+        status.print(f"[yellow]⚠ Source judge failed ({e}); using embedding order.[/yellow]")
+        return sources
+    if not judged:
+        status.print("[yellow]⚠ Source judge returned nothing; using embedding order.[/yellow]")
+        return sources
+    ranked = rank_judged(judged, novelty_weight=cfg_quality["novelty_weight"])
+    reordered = [sources[j["index"]] for j in ranked if 0 <= j["index"] < len(sources)]
+    return reordered or sources
+
+
 def _run_draft_generation(sources: list[dict], *, json_out: bool = False, json_stream=None) -> None:
     """Generate, display, save, and offer to publish Threads drafts.
 
@@ -182,9 +210,23 @@ def _run_draft_generation(sources: list[dict], *, json_out: bool = False, json_s
 
     # Last 5 posted topics — feeds the prompt's TOPIC FATIGUE GUARD so the LLM
     # avoids covering the same brand/cluster as a recent post (algorithm
-    # suppresses consecutive-topic clustering per SKILL.md S5/S14).
+    # suppresses consecutive-topic clustering per SKILL.md S5/S14). Computed
+    # here (moved up from just below the media filter) so the source judge can
+    # penalize repeats before the sources are used to build the prompt.
     recent_topics = _recent_threads_topics(db, limit=5)
     recent_performance = _recent_threads_performance(db, limit=7)
+
+    # Single Anthropic client, reused by the source judge AND the generation
+    # call below (do not construct twice).
+    ai = anthropic.Anthropic(api_key=api_key)
+
+    # Stage 1: LLM re-rank of the shortlisted sources by novelty/width/fit.
+    # Fail-open — any error keeps the embedding-similarity order untouched.
+    from orbit.source_judge import quality_config
+    cfg_quality = quality_config(cfg._data)
+    selected_sources = _judge_sources(
+        ai, selected_sources, recent_topics, top_patterns, cfg_quality, status,
+    )
 
     draft_count = min(6, len(selected_sources))
     status.print(f"[dim]Generating {draft_count} drafts with Claude...[/dim]\n")
@@ -196,7 +238,6 @@ def _run_draft_generation(sources: list[dict], *, json_out: bool = False, json_s
         count=draft_count,
     )
 
-    ai = anthropic.Anthropic(api_key=api_key)
     message = ai.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=2048,  # 6 drafts need more output budget than 3

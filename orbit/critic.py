@@ -52,3 +52,36 @@ def parse_critique(raw: str) -> dict | None:
     if not isinstance(fixes, list):
         fixes = []
     return {**scores, "total": total, "fixes": [str(f) for f in fixes]}
+
+
+def build_refine_prompt(draft: str, critique: dict, top_posts: list[dict[str, Any]]) -> str:
+    fixes = "\n".join(f"- {f}" for f in critique.get("fixes", [])) or "- tighten the hook and payoff"
+    ref = "\n".join(f"- {p['content'][:80]}" for p in (top_posts or [])[:3])
+    return f"""Rewrite this Threads draft addressing ONLY these critic fixes:
+{fixes}
+
+Preserve what already works. Keep it Traditional Chinese, under 500 chars,
+same core topic. Reference winners for tone:
+{ref or "(none)"}
+
+ORIGINAL DRAFT:
+{draft}
+
+Return ONLY the rewritten draft text. No preamble, no JSON, no commentary."""
+
+
+def pick_better(
+    original: tuple[str, dict],
+    refined: tuple[str, dict] | None,
+) -> tuple[str, dict]:
+    """Keep whichever draft scores higher. Refine must STRICTLY beat original.
+
+    Each arg is (text, critique_dict). `refined` may be None (refine skipped or
+    failed) -> original wins. This is the guardrail against reward-gaming: the
+    refiner's own opinion never counts, only the re-graded critic total.
+    """
+    if refined is None:
+        return original
+    if refined[1].get("total", 0) > original[1].get("total", 0):
+        return refined
+    return original

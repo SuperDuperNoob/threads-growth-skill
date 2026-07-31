@@ -29,3 +29,34 @@ def test_parse_bad_json_returns_none():
 
 def test_parse_missing_axis_returns_none():
     assert parse_critique('{"hook":8,"payoff":6}') is None
+
+
+from orbit.critic import build_refine_prompt, pick_better
+
+
+def test_refine_prompt_includes_draft_and_fixes():
+    crit = {"hook": 4, "payoff": 3, "anti_slop": 6, "zh_naturalness": 8,
+            "total": 21, "fixes": ["lead with the number", "cut the last line"]}
+    p = build_refine_prompt("原始草稿內容", crit, top_posts=[])
+    assert "原始草稿內容" in p
+    assert "lead with the number" in p
+    assert "cut the last line" in p
+
+
+def test_pick_better_returns_higher_scoring():
+    original = ("orig text", {"total": 60})
+    refined = ("refined text", {"total": 75})
+    text, crit = pick_better(original, refined)
+    assert text == "refined text"
+
+
+def test_pick_better_prefers_original_on_tie_or_lower():
+    original = ("orig", {"total": 70})
+    refined = ("worse", {"total": 65})
+    assert pick_better(original, refined)[0] == "orig"
+    assert pick_better(("orig", {"total": 70}), ("ref", {"total": 70}))[0] == "orig"
+
+
+def test_pick_better_handles_none_refined():
+    original = ("orig", {"total": 55})
+    assert pick_better(original, None)[0] == "orig"

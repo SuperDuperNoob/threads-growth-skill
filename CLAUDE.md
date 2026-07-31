@@ -234,6 +234,46 @@ LinkedIn data export (must be newer than the latest tracked post), re-run
 mismatch: `SinglePostAnalytics` filename URN ≠ in-URL activity URN ≠ Shares `ShareLink`
 URN — don't expect a clean DB join across export types; join by date if needed.
 
+**Draft quality pipeline (shipped 2026-07-31)** — two-stage LLM quality pass in
+Threads draft generation, addressing "posts aren't good" diagnosed as TWO
+distinct problems at different pipeline stages (repetitive/niche source PICKS,
+and AI-feel/weak-hook TEXT). Design: `docs/plans/2026-07-31-draft-quality-pipeline-design.md`.
+
+**Stage 1 — source-judge** (`orbit/source_judge.py`, wired at
+`draft.py:_judge_sources`, runs after `_require_media_sources`): embeddings still
+shortlist ~15 candidates, then ONE batched Haiku call re-scores them on novelty /
+audience_width / brand_fit and reorders. Fixes the root cause of repetition +
+too-niche picks — cosine-similarity-to-winners STRUCTURALLY rewards both failure
+modes (it aims at past winners and can't see audience width). `rank_judged`
+weights novelty 1.5× by default (Keith's #1 gripe). This PROMOTES the existing
+TOPIC-FATIGUE + AUDIENCE-WIDTH rules from generation-time (where they only change
+wording) up to selection-time (where they change WHICH tweets get drafted).
+
+**Stage 2 — critic + single refine** (`orbit/critic.py`, wired at
+`draft.py:_critique_and_refine`, runs per-draft after `_parse_drafts`): a Haiku
+critic grades hook / payoff / anti_slop / zh_naturalness; if `total <
+refine_threshold` (default 70), ONE Sonnet refine pass, then re-grade and keep
+whichever scores higher (`pick_better`, refine must STRICTLY beat original). NO
+refine-until-threshold loop — deliberately cut; research + the design rationale
+say rounds 3-5 drift toward generic. Critic is authoritative, refiner never
+self-certifies (anti reward-gaming).
+
+Models: Haiku `claude-haiku-4-5-20251001` for judge+critic (cheap scoring),
+Sonnet `claude-sonnet-4-6` for generation+refine (prose quality). Worst-case
+~13-19 LLM calls/`orbit draft` run vs 1 before — note for Hermes headless timeout.
+
+Config in `~/.orbit/config.json` under `draft_quality` (all optional, safe
+defaults via `source_judge.quality_config`): `source_judge` (bool), `critic`
+(bool), `refine_threshold` (int, 70), `novelty_weight` (float, 1.5). Set a flag
+false → that stage no-ops and the pre-pipeline behavior is exactly restored.
+
+EVERY stage is FAIL-OPEN with a VISIBLE stderr warning (per the sync-staleness
+lesson — silent failures hid a 3-week outage): judge error → embedding order;
+critic error → keep draft; refine error/lower-score → keep original. Fail-open
+wiring covered by `tests/test_draft_quality_wiring.py` (stub-AI proves no crash +
+no LLM call when disabled). Pure builders/parsers/`pick_better` unit-tested in
+`test_source_judge.py` / `test_critic.py`. 284 tests pass.
+
 ## NAS mirror
 
 a read-only copy of this CLAUDE.md lives in the obsidian vault at

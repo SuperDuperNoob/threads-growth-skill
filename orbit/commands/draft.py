@@ -126,6 +126,55 @@ def _judge_sources(ai, sources, recent_topics, top_patterns, cfg_quality, status
     return reordered or sources
 
 
+def _critique_and_refine(ai, draft_text, top_patterns, cfg_quality, status):
+    """Grade a draft; refine once if below threshold; return the better text.
+
+    Fail-open: any error returns the original draft unchanged.
+    """
+    if not cfg_quality["critic"]:
+        return draft_text
+    from orbit.critic import (
+        build_critic_prompt,
+        parse_critique,
+        build_refine_prompt,
+        pick_better,
+    )
+
+    def _grade(text):
+        try:
+            msg = ai.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=512,
+                messages=[{"role": "user", "content": build_critic_prompt(text, top_patterns)}],
+            )
+            return parse_critique(msg.content[0].text)
+        except Exception as e:  # noqa: BLE001
+            status.print(f"[yellow]⚠ Critic failed ({e}); keeping draft as-is.[/yellow]")
+            return None
+
+    original_crit = _grade(draft_text)
+    if original_crit is None:
+        return draft_text
+    if original_crit["total"] >= cfg_quality["refine_threshold"]:
+        return draft_text
+    try:
+        rmsg = ai.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": build_refine_prompt(draft_text, original_crit, top_patterns)}],
+        )
+        refined_text = rmsg.content[0].text.strip()
+    except Exception as e:  # noqa: BLE001
+        status.print(f"[yellow]⚠ Refine failed ({e}); keeping original.[/yellow]")
+        return draft_text
+    refined_crit = _grade(refined_text)
+    better, _ = pick_better(
+        (draft_text, original_crit),
+        (refined_text, refined_crit) if refined_crit else None,
+    )
+    return better
+
+
 def _run_draft_generation(sources: list[dict], *, json_out: bool = False, json_stream=None) -> None:
     """Generate, display, save, and offer to publish Threads drafts.
 
@@ -251,6 +300,15 @@ def _run_draft_generation(sources: list[dict], *, json_out: bool = False, json_s
         status.print("[red]✗ Could not parse drafts from Claude response.[/red]")
         status.print(raw)
         raise typer.Exit(1)
+
+    # Stage 2: per-draft LLM critic + single refine. Fail-open — each draft is
+    # graded, refined once if below threshold, and only replaced when the refined
+    # version strictly beats the original. Runs before source-matching so both the
+    # json and interactive paths use the (possibly refined) text downstream.
+    drafts = [
+        _critique_and_refine(ai, d, top_patterns, cfg_quality, status)
+        for d in drafts
+    ]
 
     # Track which bookmarks the initial drafts came from. Used by both:
     # - regenerate (swap a draft for one built from a fresh unused bookmark)

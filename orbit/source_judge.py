@@ -81,3 +81,17 @@ def rank_judged(judged: list[dict], *, novelty_weight: float = 1.5) -> list[dict
     def total(j: dict) -> float:
         return j["novelty"] * novelty_weight + j["width"] + j["fit"]
     return sorted(judged, key=total, reverse=True)
+
+
+_QUALITY_DEFAULTS = {
+    "source_judge": True,
+    "critic": True,
+    "refine_threshold": 70,
+    "novelty_weight": 1.5,
+}
+
+
+def quality_config(raw_config: dict) -> dict:
+    """Merge `draft_quality` overrides onto safe defaults. Pure."""
+    user = (raw_config or {}).get("draft_quality") or {}
+    return {**_QUALITY_DEFAULTS, **{k: user[k] for k in _QUALITY_DEFAULTS if k in user}}

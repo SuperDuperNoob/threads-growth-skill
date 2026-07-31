@@ -62,3 +62,22 @@ def test_rank_default_weight_is_one():
     ]
     ranked = rank_judged(judged, novelty_weight=1.0)
     assert ranked[0]["index"] == 1
+
+
+from orbit.source_judge import quality_config
+
+
+def test_quality_config_defaults_when_absent():
+    cfg = quality_config({})
+    assert cfg["source_judge"] is True
+    assert cfg["critic"] is True
+    assert cfg["refine_threshold"] == 70
+    assert cfg["novelty_weight"] == 1.5
+
+
+def test_quality_config_respects_overrides():
+    raw = {"draft_quality": {"source_judge": False, "refine_threshold": 80}}
+    cfg = quality_config(raw)
+    assert cfg["source_judge"] is False
+    assert cfg["refine_threshold"] == 80
+    assert cfg["critic"] is True

@@ -122,7 +122,20 @@ def _judge_sources(ai, sources, recent_topics, top_patterns, cfg_quality, status
         status.print("[yellow]⚠ Source judge returned nothing; using embedding order.[/yellow]")
         return sources
     ranked = rank_judged(judged, novelty_weight=cfg_quality["novelty_weight"])
-    reordered = [sources[j["index"]] for j in ranked if 0 <= j["index"] < len(sources)]
+    seen: set[int] = set()
+    reordered = []
+    for j in ranked:
+        idx = j["index"]
+        if 0 <= idx < len(sources) and idx not in seen:
+            seen.add(idx)
+            reordered.append(sources[idx])
+    missing = [s for i, s in enumerate(sources) if i not in seen]
+    if missing:
+        status.print(
+            f"[yellow]⚠ Source judge scored {len(seen)}/{len(sources)} sources; "
+            f"keeping the rest in original order.[/yellow]"
+        )
+        reordered.extend(missing)
     return reordered or sources
 
 

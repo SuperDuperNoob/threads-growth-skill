@@ -127,3 +127,69 @@ def test_critique_and_refine_short_circuits_when_disabled():
     )
 
     assert result == draft_text  # would have raised AssertionError if create() ran
+
+
+# --- happy-path wiring (valid JSON) ----------------------------------------
+
+class _Resp:
+    """Anthropic SDK response shape: `.content[0].text` is a string."""
+
+    def __init__(self, text):
+        self.content = [type("Blk", (), {"text": text})()]
+
+
+def test_judge_sources_reorders_by_rank():
+    # 3 sources; judge ranks index 2 best, then 0, then 1
+    import json as _json
+    payload = _json.dumps([
+        {"index": 0, "novelty": 5, "width": 5, "fit": 5, "reason": "mid"},
+        {"index": 1, "novelty": 1, "width": 1, "fit": 1, "reason": "low"},
+        {"index": 2, "novelty": 9, "width": 9, "fit": 9, "reason": "top"},
+    ])
+    srcs = [{"text": "a"}, {"text": "b"}, {"text": "c"}]
+    ai = FakeAI(lambda **k: _Resp(payload))
+    cfgq = {"source_judge": True, "novelty_weight": 1.5}
+    out = draft_mod._judge_sources(ai, srcs, [], [], cfgq, SilentStatus())
+    assert [s["text"] for s in out] == ["c", "a", "b"]
+
+
+def test_judge_sources_keeps_unjudged_sources_at_end():
+    # only index 1 is judged; 0 and 2 must survive, in original order, after it
+    import json as _json
+    payload = _json.dumps([{"index": 1, "novelty": 9, "width": 9, "fit": 9, "reason": "x"}])
+    srcs = [{"text": "a"}, {"text": "b"}, {"text": "c"}]
+    ai = FakeAI(lambda **k: _Resp(payload))
+    status = SilentStatus()
+    cfgq = {"source_judge": True, "novelty_weight": 1.5}
+    out = draft_mod._judge_sources(ai, srcs, [], [], cfgq, status)
+    assert out[0]["text"] == "b"          # judged winner first
+    assert {s["text"] for s in out} == {"a", "b", "c"}  # nothing dropped
+    assert len(out) == 3
+    assert status.messages                # warned about partial judging
+
+
+def test_critique_and_refine_keeps_high_scoring_draft_without_refining():
+    # critic returns total >= threshold -> no refine call, original returned
+    import json as _json
+    crit = _json.dumps({"hook": 9, "payoff": 9, "anti_slop": 9, "zh_naturalness": 9, "total": 90, "fixes": []})
+    calls = {"n": 0}
+    def on_create(**k):
+        calls["n"] += 1
+        return _Resp(crit)
+    ai = FakeAI(on_create)
+    cfgq = {"critic": True, "refine_threshold": 70}
+    out = draft_mod._critique_and_refine(ai, "good draft", [], cfgq, SilentStatus())
+    assert out == "good draft"
+    assert calls["n"] == 1  # graded once, NOT refined (score above threshold)
+
+
+def test_critique_and_refine_refines_and_keeps_better():
+    # first grade low (total 40) -> refine -> re-grade high (total 88) -> keep refined
+    import json as _json
+    low = _json.dumps({"hook": 4, "payoff": 4, "anti_slop": 4, "zh_naturalness": 4, "total": 40, "fixes": ["x"]})
+    high = _json.dumps({"hook": 8, "payoff": 8, "anti_slop": 8, "zh_naturalness": 8, "total": 88, "fixes": []})
+    seq = iter([low, "refined draft text", high])  # grade, refine(returns text), re-grade
+    ai = FakeAI(lambda **k: _Resp(next(seq)))
+    cfgq = {"critic": True, "refine_threshold": 70}
+    out = draft_mod._critique_and_refine(ai, "weak draft", [], cfgq, SilentStatus())
+    assert out == "refined draft text"

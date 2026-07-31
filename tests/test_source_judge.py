@@ -81,3 +81,15 @@ def test_quality_config_respects_overrides():
     assert cfg["source_judge"] is False
     assert cfg["refine_threshold"] == 80
     assert cfg["critic"] is True
+
+
+def test_quality_config_coerces_stringly_typed_numbers():
+    cfg = quality_config({"draft_quality": {"refine_threshold": "80", "novelty_weight": "2"}})
+    assert cfg["refine_threshold"] == 80
+    assert cfg["novelty_weight"] == 2
+
+
+def test_quality_config_falls_back_on_garbage_numbers():
+    cfg = quality_config({"draft_quality": {"refine_threshold": "abc", "novelty_weight": None}})
+    assert cfg["refine_threshold"] == 70   # default
+    assert cfg["novelty_weight"] == 1.5    # default

@@ -92,6 +92,26 @@ _QUALITY_DEFAULTS = {
 
 
 def quality_config(raw_config: dict) -> dict:
-    """Merge `draft_quality` overrides onto safe defaults. Pure."""
+    """Merge `draft_quality` overrides onto safe defaults, coercing types.
+
+    Numeric/bool fields are coerced so a hand-edited config.json with a
+    stringly-typed or malformed value degrades to the default instead of
+    crashing the draft pipeline downstream (fail-open).
+    """
     user = (raw_config or {}).get("draft_quality") or {}
-    return {**_QUALITY_DEFAULTS, **{k: user[k] for k in _QUALITY_DEFAULTS if k in user}}
+    out = dict(_QUALITY_DEFAULTS)
+    if "source_judge" in user:
+        out["source_judge"] = bool(user["source_judge"])
+    if "critic" in user:
+        out["critic"] = bool(user["critic"])
+    if "refine_threshold" in user:
+        try:
+            out["refine_threshold"] = float(user["refine_threshold"])
+        except (TypeError, ValueError):
+            pass  # keep default
+    if "novelty_weight" in user:
+        try:
+            out["novelty_weight"] = float(user["novelty_weight"])
+        except (TypeError, ValueError):
+            pass  # keep default
+    return out

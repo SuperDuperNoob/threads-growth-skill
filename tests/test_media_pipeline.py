@@ -128,3 +128,44 @@ def test_postiz_upload_uses_generous_timeout_for_videos(monkeypatch):
     assert captured["timeout"] == media_pipeline._UPLOAD_TIMEOUT_SECONDS
     # Must be materially larger than the old 120s that failed on real videos.
     assert media_pipeline._UPLOAD_TIMEOUT_SECONDS >= 300
+
+
+def test_attach_media_rejects_oversized_file(tmp_path, monkeypatch):
+    """A too-large download must raise MediaPipelineError BEFORE upload, so
+    do_handoff degrades to text-only instead of hanging on a 423MB video.
+    """
+    monkeypatch.setattr(media_pipeline, "_MEDIA_DIR", tmp_path)
+    monkeypatch.setattr(media_pipeline, "_INDEX_PATH", tmp_path / "idx.json")
+    monkeypatch.setattr(media_pipeline, "_MAX_UPLOAD_BYTES", 10)  # tiny cap for the test
+
+    def fake_download(draft_id, source_url, *, force):
+        p = tmp_path / f"{draft_id}.mp4"
+        p.write_bytes(b"x" * 50)  # 50 bytes > 10-byte cap
+        return p
+
+    def _explode_upload(path):
+        raise AssertionError("upload must not be attempted for oversized media")
+
+    monkeypatch.setattr(media_pipeline, "_download", fake_download)
+    monkeypatch.setattr(media_pipeline, "_postiz_upload", _explode_upload)
+
+    with pytest.raises(media_pipeline.MediaPipelineError, match="too large"):
+        media_pipeline.attach_media(1234, "https://video.twimg.com/x.mp4", force=True)
+
+
+def test_attach_media_allows_under_limit_file(tmp_path, monkeypatch):
+    """A file under the cap uploads normally."""
+    monkeypatch.setattr(media_pipeline, "_MEDIA_DIR", tmp_path)
+    monkeypatch.setattr(media_pipeline, "_INDEX_PATH", tmp_path / "idx.json")
+    monkeypatch.setattr(media_pipeline, "_MAX_UPLOAD_BYTES", 1000)
+
+    def fake_download(draft_id, source_url, *, force):
+        p = tmp_path / f"{draft_id}.jpg"
+        p.write_bytes(b"x" * 100)  # under cap
+        return p
+
+    monkeypatch.setattr(media_pipeline, "_download", fake_download)
+    monkeypatch.setattr(media_pipeline, "_postiz_upload", lambda path: "https://uploads.postiz.com/ok.jpg")
+
+    url = media_pipeline.attach_media(99, "https://pbs.twimg.com/x.jpg", force=True)
+    assert url == "https://uploads.postiz.com/ok.jpg"

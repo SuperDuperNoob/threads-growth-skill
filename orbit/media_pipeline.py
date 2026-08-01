@@ -28,6 +28,13 @@ _INDEX_PATH = _MEDIA_DIR / "uploads_index.json"
 # still bounding a genuinely wedged upload (important for headless Hermes runs).
 _UPLOAD_TIMEOUT_SECONDS = 300
 
+# Skip uploads above this size. A 423MB Seedance clip couldn't upload even at
+# 300s — and full-quality amplify source videos are far larger than a social
+# post needs. Guarding BEFORE upload turns a 5-minute TimeoutExpired hang (which
+# crashes handoff) into a fast MediaPipelineError (which do_handoff catches and
+# degrades to text-only). 200MB is generous for Threads/FB-suitable clips.
+_MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+
 
 class MediaPipelineError(RuntimeError):
     """Raised when download or upload fails — caller decides if it's fatal."""
@@ -48,6 +55,13 @@ def attach_media(draft_id: int, source_url: str, *, force: bool = False) -> str:
         return cached
 
     local_path = _download(draft_id, source_url, force=force)
+    size = local_path.stat().st_size
+    if size > _MAX_UPLOAD_BYTES:
+        raise MediaPipelineError(
+            f"media too large to upload: {size / 1024 / 1024:.0f}MB "
+            f"exceeds {_MAX_UPLOAD_BYTES / 1024 / 1024:.0f}MB limit "
+            f"(source {source_url})"
+        )
     postiz_url = _postiz_upload(local_path)
     index[str(draft_id)] = postiz_url
     _save_index(index)

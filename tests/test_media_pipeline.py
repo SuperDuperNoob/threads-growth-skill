@@ -102,3 +102,29 @@ def test_attach_media_force_bypasses_cache(tmp_path, monkeypatch):
     assert calls == {"download": 1, "upload": 1}
     # Cache should be updated too
     assert media_pipeline._load_index()["117"] == "https://uploads.postiz.com/new.jpg"
+
+
+# ---- _postiz_upload timeout ----
+
+def test_postiz_upload_uses_generous_timeout_for_videos(monkeypatch):
+    """Regression guard: video uploads timed out at 120s, leaving drafts stuck
+    at `scheduled`. The upload subprocess must use the raised _UPLOAD_TIMEOUT_SECONDS.
+    """
+    captured = {}
+
+    class _Result:
+        returncode = 0
+        stdout = '{"path": "https://uploads.postiz.com/x.mp4"}'
+        stderr = ""
+
+    def fake_run(cmd, **kwargs):
+        captured.update(kwargs)
+        return _Result()
+
+    monkeypatch.setattr(media_pipeline.subprocess, "run", fake_run)
+    url = media_pipeline._postiz_upload(Path("/tmp/1234.mp4"))
+
+    assert url == "https://uploads.postiz.com/x.mp4"
+    assert captured["timeout"] == media_pipeline._UPLOAD_TIMEOUT_SECONDS
+    # Must be materially larger than the old 120s that failed on real videos.
+    assert media_pipeline._UPLOAD_TIMEOUT_SECONDS >= 300

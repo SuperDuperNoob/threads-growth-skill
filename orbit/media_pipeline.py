@@ -22,6 +22,12 @@ import httpx
 _MEDIA_DIR = Path.home() / ".orbit" / "media"
 _INDEX_PATH = _MEDIA_DIR / "uploads_index.json"
 
+# Postiz media upload can be slow for videos (Twitter amplify clips are tens of
+# MB). 120s was too tight — it timed out mid-upload on real Seedance/motion
+# videos, leaving drafts stuck at `scheduled`. 300s covers large videos while
+# still bounding a genuinely wedged upload (important for headless Hermes runs).
+_UPLOAD_TIMEOUT_SECONDS = 300
+
 
 class MediaPipelineError(RuntimeError):
     """Raised when download or upload fails — caller decides if it's fatal."""
@@ -72,7 +78,7 @@ def _postiz_upload(path: Path) -> str:
     """Run `postiz upload <path>`, parse the JSON response, return the URL."""
     result = subprocess.run(
         ["postiz", "upload", str(path)],
-        capture_output=True, text=True, timeout=120,
+        capture_output=True, text=True, timeout=_UPLOAD_TIMEOUT_SECONDS,
     )
     if result.returncode != 0:
         raise MediaPipelineError(

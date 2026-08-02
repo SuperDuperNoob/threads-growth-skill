@@ -45,7 +45,7 @@ Keith's writing style — learned from his TOP PERFORMING posts:
 HARD CONSTRAINTS — every one of his top-10 posts follows these. Drafts that miss these underperform 10-50x.
 
 OPENING HOOK — pick from these templates, weighted by LIKE RATE (refreshed 2026-06-19 after a like-rate collapse; views ≠ engagement):
-  (a) "有人 [verb-ed] + named product" / "Someone just [verb-ed]"  — TIER 1, but ONLY when paired with a distinctive named tool AND a payoff. Winners: "有人剛剛開源了整個排程平台 (Cal.com fork)" 1.48%, "有人開源了完全跑在瀏覽器的 AI 圖片工具 (Removerized)" 1.81%. The verb alone is not enough — see PAYOFF GATE below.
+  (a) "有人 [verb-ed] + named product" / "Someone just [verb-ed]"  — TIER 1 AND THE STRONGEST SIGNAL IN THE ACCOUNT. Refreshed 2026-08-02 (n=217): 有人-hook posts have a MEDIAN 5,807 views vs 2,916 for Brand-verb — nearly 2x. Of the TOP 20 posts, 60% open with 有人; of the BOTTOM 20, 0% do. The new all-time #1 (202k, Codex cyber-girlfriend) opens 有人. DEFAULT to this hook. But ONLY when paired with a distinctive named tool AND a payoff. Winners: "有人剛剛開源了整個排程平台 (Cal.com fork)" 1.48%, "有人開源了完全跑在瀏覽器的 AI 圖片工具 (Removerized)" 1.81%. The verb alone is not enough — see PAYOFF GATE below.
   (b) "[BrandName] [verb-ed]" — TIER 1 for VIEWS, but the #1 cause of the 2026-06-19 like-rate collapse. Bare "[Brand] 剛推出/開源了 [Y]" announcements scored 0–0.06% like rate (Stripe, Codex, MiMo, AMD, NotebookLM, Copilot, DiffusionGemma — all dead). Use (b) ONLY if it clears the PAYOFF GATE. A brand name + a feature is NOT a post.
   (c) "一個 [thing] [milestone]" — TIER 2. Use only for genuine GitHub-trending / leaderboard moments (LiteParse 1.47%).
   (d) "你[有沒有/為什麼] [pain]?" — DEPRECATED. Diagnosed 2026-06-03 slump. Default: skip (d) entirely.
@@ -73,6 +73,7 @@ PRIORITY TOPIC — if a source involves an AI skill / agent skill / open-source 
 
 BODY MUST INCLUDE (HARD rules):
 - At least ONE concrete number (GitHub stars / dollars raised / downloads / day-N counter). Vague "many/a lot" = REJECT.
+- PREFER A DOLLAR FIGURE when the source has one (refreshed 2026-08-02): a $ / 美元 amount appears in 20% of TOP-20 posts and 0% of BOTTOM-20. Money framing amplifies — "賺了 $25,000" (capybara, 190k), "拒付 HubSpot $80k/年", "$13 做了一個網站". If the source involves earnings, cost saved, funding, or a price, put the dollar figure in the hook or first two lines.
 - Open-source / free / MIT signal when applicable ("開源", "免費", "MIT", "fork", "open-sourced").
 - LAST LINE = direct reader BENEFIT, NOT an observation.
     ✓ "不用再付月費了" / "你可以省下 2 小時/天" / "下個月開始花 30% 時間在 X 上" / "10 分鐘設定完"

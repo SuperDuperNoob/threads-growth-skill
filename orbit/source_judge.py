@@ -31,7 +31,13 @@ Score EACH candidate 0-10 on three axes:
 - novelty: is this a fresh topic vs the recently-posted list? (repeats = 0-3)
 - audience_width: does a GENERAL AI builder care, or is it researcher-niche /
   narrow dev-tooling? (too niche = 0-3)
-- brand_fit: is it in Keith's "practical AI tool/launch" lane?
+- brand_fit: is it in Keith's "practical AI tool/launch" lane? BOOST fit (8-10)
+  for sources that can open with the "有人 [did X]" hook (someone built/shipped/
+  open-sourced a concrete tool) — that hook is Keith's strongest performer by
+  far (top-20 posts: 60% use it; bottom-20: 0%). ALSO boost sources carrying a
+  DOLLAR FIGURE (earnings, cost saved, funding, price) — money-framed posts hit
+  20% of the top-20 and 0% of the bottom-20. A bare "[Brand] launched [feature]"
+  with no dollar angle and no 有人 framing is a WEAKER fit (4-6).
 
 CANDIDATES:
 {rendered}

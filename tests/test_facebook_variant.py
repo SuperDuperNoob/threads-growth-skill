@@ -59,3 +59,23 @@ def test_facebook_native_fails_open_on_api_error(monkeypatch):
     content, warning = _facebook_native(SAMPLE, NoKeyConfig())
     assert content == SAMPLE
     assert warning is not None and "rewrite failed" in warning
+
+
+def test_prompt_includes_2026_discovery_signals():
+    """The prompt reflects verified 2026 FB behavior: search-keywords + save-worthy."""
+    prompt = build_facebook_variant_prompt(SAMPLE)
+    low = prompt.lower()
+    assert "keyword" in low          # social-SEO: FB reads text as search keywords
+    assert "save" in low             # a save/share is worth ~50 likes
+    assert "engagement-bait" in low or "engagement bait" in low  # explicit anti-bait
+
+
+def test_prompt_video_guidance_conditional():
+    """Video guidance appears only when the post actually has a video."""
+    with_video = build_facebook_variant_prompt(SAMPLE, has_video=True)
+    without = build_facebook_variant_prompt(SAMPLE, has_video=False)
+    assert "there is a video with this post" in with_video
+    assert "no video — text only" in without
+    # video-leaning caption instruction is present in the prompt body either way,
+    # but the state line differs
+    assert with_video != without

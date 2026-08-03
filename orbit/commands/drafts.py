@@ -341,7 +341,8 @@ def do_handoff(
     # original if the rewrite can't run — same behavior as before).
     fb_content: str | None = None
     if any(name == "facebook" for name, _, _ in targets):
-        fb_content, fb_warn = _facebook_native(r["content"], cfg)
+        fb_has_video = (r.get("media_type") == "video") and bool(r.get("media_url"))
+        fb_content, fb_warn = _facebook_native(r["content"], cfg, has_video=fb_has_video)
         if fb_warn:
             console.print(f"  [yellow]⚠ Draft {draft_id}: {fb_warn}[/yellow]")
         else:
@@ -384,7 +385,7 @@ def do_handoff(
     )
 
 
-def _facebook_native(content: str, cfg: Config) -> tuple[str, str | None]:
+def _facebook_native(content: str, cfg: Config, *, has_video: bool = False) -> tuple[str, str | None]:
     """Facebook-native rewrite of a Threads draft (discussion-framed, same facts).
 
     Returns (content_to_post, warning). Fail-open: on any error the original
@@ -405,7 +406,7 @@ def _facebook_native(content: str, cfg: Config) -> tuple[str, str | None]:
         msg = ai.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=1024,
-            messages=[{"role": "user", "content": build_facebook_variant_prompt(content)}],
+            messages=[{"role": "user", "content": build_facebook_variant_prompt(content, has_video=has_video)}],
         )
         text = (msg.content[0].text or "").strip()
         if not text:

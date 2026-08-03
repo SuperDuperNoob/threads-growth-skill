@@ -462,26 +462,40 @@ def _format_fatigue_block(recent_formats: list[str]) -> str:
     )
 
 
-def build_facebook_variant_prompt(content: str) -> str:
+def build_facebook_variant_prompt(content: str, *, has_video: bool = False) -> str:
     """Rewrite a Threads draft as a Facebook-native post.
 
-    Facebook's 2026 feed distributes Page text posts almost entirely on
-    comment/share velocity (reach without engagement: ~1-6% of followers,
-    no discovery surface). A broadcast that works on Threads just dies there,
-    so the cross-post gets reframed for discussion instead of cloned.
+    Facebook's 2026 feed is AI-driven discovery (most reach is to non-followers),
+    won in the first hour on high-intent signals — a share/save is worth ~50 likes,
+    and the feed's NLP reads post text as search keywords. Video out-reaches text
+    ~2x. A broadcast that works on Threads dies here, so the cross-post gets
+    reframed for discovery + discussion, and leans into any attached video.
     """
+    has_media = "there is a video with this post" if has_video else "no video — text only"
     return f"""Rewrite this Threads post as a Facebook post by the same author.
 
-Facebook in 2026 rewards posts that start conversations — comments and shares
-are the only distribution currency for text posts. Rewrite it so it:
+Facebook in 2026 is an AI-driven discovery feed (54% of what people see is from
+accounts they DON'T follow). Distribution is won in the first hour on high-intent
+signals: a SHARE or SAVE is worth ~50 likes, comments beat likes, and the AI reads
+your text as SEARCH keywords to decide who discovers it. Rewrite the post so it:
 
-- Opens with the strongest concrete detail or claim (first line is the hook).
+- Opens with the strongest concrete detail or claim, and front-loads SEARCHABLE
+  keywords in the first line (tool names, "open source", "AI agent", the category)
+  — Facebook's NLP uses them to surface the post in search and topic discovery.
 - Keeps every fact, number, and project name exactly as written — invent nothing.
 - Reads as the same person: plain, direct, first person. No marketing voice.
+- Is SAVE-WORTHY: frame the takeaway as something a reader would save/share to use
+  later ("here's how", the concrete steps/cost/result), not just react to.
 - Has room to breathe: 2-4 short paragraphs (Facebook tolerates longer than Threads).
 - Ends with ONE specific question readers can answer from their own experience.
   Not "what do you think?" — a question about THEIR setup, result, or choice.
+  Do NOT use engagement-bait ("comment YES", "tag a friend") — FB penalizes it.
 - No hashtags. No emojis beyond any already in the original.
+
+IF THE POST HAS A VIDEO attached ({has_media}): video out-reaches text ~2x on FB in
+2026, so the text is a caption for the video — lead with the single most striking
+thing the VIEWER will SEE in it, then the context. Do not describe the video as
+"attached"; make the caption earn the play.
 
 Original Threads post:
 ---

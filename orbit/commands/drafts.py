@@ -290,7 +290,8 @@ def do_handoff(
             if fb_id:
                 # Facebook's integration requires post_type. Keep source links
                 # out of the main post/link-card surface; source links go only
-                # as threaded comments via _pick_comment_link below.
+                # as threaded comments via _pick_comment_link below. Content is
+                # NOT the Threads clone — see _facebook_native below.
                 fb_settings: dict = {"post_type": "post"}
                 targets.append(("facebook", fb_id, fb_settings))
 
@@ -334,6 +335,18 @@ def do_handoff(
             f"[cyan]orbit drafts comment {draft_id} <url>[/cyan][dim], then re-handoff.[/dim]"
         )
 
+    # Facebook never gets the verbatim Threads clone anymore. FB's 2026 feed
+    # gives Page text posts ~1-6% reach and distributes on comment velocity,
+    # so the cross-post is rewritten discussion-first (fail-open to the
+    # original if the rewrite can't run — same behavior as before).
+    fb_content: str | None = None
+    if any(name == "facebook" for name, _, _ in targets):
+        fb_content, fb_warn = _facebook_native(r["content"], cfg)
+        if fb_warn:
+            console.print(f"  [yellow]⚠ Draft {draft_id}: {fb_warn}[/yellow]")
+        else:
+            console.print(f"  [dim]Draft {draft_id}: Facebook gets a discussion-framed native variant, not a clone.[/dim]")
+
     # One Postiz call per integration so each gets the right --settings dict.
     # Two-target sends today: Threads (no settings) + Facebook ({post_type, url?}).
     posted: list[tuple[str, str]] = []
@@ -341,7 +354,7 @@ def do_handoff(
     for name, iid, settings in targets:
         try:
             pid = postiz.schedule_post(
-                content=r["content"],
+                content=(fb_content if name == "facebook" and fb_content else r["content"]),
                 when_iso=when_iso,
                 integration_ids=[iid],
                 media_url=postiz_media_url,
@@ -369,6 +382,37 @@ def do_handoff(
         msg,
         postiz_id=",".join(pid for _, pid in posted),
     )
+
+
+def _facebook_native(content: str, cfg: Config) -> tuple[str, str | None]:
+    """Facebook-native rewrite of a Threads draft (discussion-framed, same facts).
+
+    Returns (content_to_post, warning). Fail-open: on any error the original
+    content goes out — identical to the old verbatim cross-post — with a
+    warning so the fallback is never silent.
+    """
+    import os
+
+    import anthropic
+
+    from orbit.analysis import build_facebook_variant_prompt
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or cfg.get("anthropic.api_key")
+    if not api_key:
+        return content, "no anthropic key — Facebook got the verbatim cross-post"
+    try:
+        ai = anthropic.Anthropic(api_key=api_key)
+        msg = ai.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": build_facebook_variant_prompt(content)}],
+        )
+        text = (msg.content[0].text or "").strip()
+        if not text:
+            return content, "empty rewrite — Facebook got the verbatim cross-post"
+        return text, None
+    except Exception as e:
+        return content, f"rewrite failed ({e}) — Facebook got the verbatim cross-post"
 
 
 def _pick_embed_url(source_links_json: str | None) -> str | None:

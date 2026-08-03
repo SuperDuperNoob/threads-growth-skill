@@ -460,3 +460,32 @@ def _format_fatigue_block(recent_formats: list[str]) -> str:
         f"DO NOT pick any of: {excluded}. Choose from the remaining formats in the menu.\n"
         f"If the source bookmark genuinely cannot fit any non-excluded format, prefer the LEAST-RECENTLY-USED excluded format and note this trade-off in your internal reasoning.\n\n"
     )
+
+
+def build_facebook_variant_prompt(content: str) -> str:
+    """Rewrite a Threads draft as a Facebook-native post.
+
+    Facebook's 2026 feed distributes Page text posts almost entirely on
+    comment/share velocity (reach without engagement: ~1-6% of followers,
+    no discovery surface). A broadcast that works on Threads just dies there,
+    so the cross-post gets reframed for discussion instead of cloned.
+    """
+    return f"""Rewrite this Threads post as a Facebook post by the same author.
+
+Facebook in 2026 rewards posts that start conversations — comments and shares
+are the only distribution currency for text posts. Rewrite it so it:
+
+- Opens with the strongest concrete detail or claim (first line is the hook).
+- Keeps every fact, number, and project name exactly as written — invent nothing.
+- Reads as the same person: plain, direct, first person. No marketing voice.
+- Has room to breathe: 2-4 short paragraphs (Facebook tolerates longer than Threads).
+- Ends with ONE specific question readers can answer from their own experience.
+  Not "what do you think?" — a question about THEIR setup, result, or choice.
+- No hashtags. No emojis beyond any already in the original.
+
+Original Threads post:
+---
+{content}
+---
+
+Output ONLY the Facebook post text — no preamble, no quotes, no explanation."""

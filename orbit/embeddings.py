@@ -73,13 +73,9 @@ def embed_texts(texts: Sequence[str], *, client=None) -> list[list[float]]:
 
     if client is None:
         from openai import OpenAI
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise RuntimeError(
-                "OPENAI_API_KEY not set. Embeddings require OpenAI access. "
-                "Either set the env var or pass `client=` for tests."
-            )
-        client = OpenAI(api_key=api_key)
+        api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("CUSTOM_API_KEY") or "local"
+        base_url = os.environ.get("OPENAI_BASE_URL") or "http://127.0.0.1:20128/v1"
+        client = OpenAI(api_key=api_key, base_url=base_url)
 
     resp = client.embeddings.create(model=EMBEDDING_MODEL, input=payload)
     vectors_by_idx: dict[int, list[float]] = {

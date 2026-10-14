@@ -9,7 +9,7 @@ from rich.table import Table
 
 from orbit.config import Config
 from orbit.db import DB
-from orbit.platforms import postiz
+from orbit.platforms import threads, meta_token
 from orbit.platforms.threads import ThreadsClient
 
 app = typer.Typer(help="Browse and manage saved drafts")

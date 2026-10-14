@@ -150,20 +150,5 @@ def _format_threads_diversity_plan(count: int) -> str:
     return "\n".join(selected)
 
 
-def build_linkedin_prompt(bookmarks: list[dict[str, Any]], *, recent_formats: list[str] | None = None) -> str:
-    """LinkedIn prompt adapted for MY+EN builder professional audience."""
-    sources = "\n\n---\n\n".join(f"Author: {b['author']}\nURL: {b['url']}\n{b['text']}" for b in bookmarks[:10])
-    return f"""You are a professional LinkedIn content writer in {MARKET}. Write 1 LinkedIn post in English (with natural local builder tone) for a tech founder/builder audience.
-Sources:\n{sources}\nOutput only the post body."""
-
-
-def classify_linkedin_format(content: str) -> str:
-    return "STORY"
-
-
-def _format_fatigue_block(recent_formats: list[str]) -> str:
-    return ""
-
-
 def build_facebook_variant_prompt(content: str, *, has_video: bool = False) -> str:
     return f"""Rewrite this Threads post as a Facebook discovery-feed post in Malaysian Malay/English.\nOriginal:\n{content}"""
